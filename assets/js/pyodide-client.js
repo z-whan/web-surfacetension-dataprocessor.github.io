@@ -1,8 +1,8 @@
 (function () {
   const config = window.SurfaceLabConfig;
-  const APP_ROOT = "/surface_lab";
-  const PY_ROOT = APP_ROOT + "/py";
-  const UPLOAD_ROOT = APP_ROOT + "/uploads";
+  let APP_ROOT = null;
+  let PY_ROOT = null;
+  let UPLOAD_ROOT = null;
 
   let pyodideInstance = null;
   let bridgeModule = null;
@@ -35,6 +35,18 @@
 
   function sanitizeFilename(name) {
     return name.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  }
+
+  function joinPath(left, right) {
+    const normalizedLeft = (left || "").replace(/\/+$/, "");
+    const normalizedRight = (right || "").replace(/^\/+/, "");
+    if (!normalizedLeft) {
+      return "/" + normalizedRight;
+    }
+    if (normalizedLeft === "/") {
+      return "/" + normalizedRight;
+    }
+    return normalizedLeft + "/" + normalizedRight;
   }
 
   function normalizeError(error) {
@@ -112,6 +124,36 @@
     await pyodide.loadPackage(config.PYTHON_PACKAGES);
   }
 
+  function initializeWorkspacePaths(pyodide) {
+    const cwd = typeof pyodide.FS.cwd === "function" ? pyodide.FS.cwd() : "/";
+    const candidates = [
+      joinPath(cwd, "surface_lab"),
+      "/tmp/surface_lab",
+      "/surface_lab",
+    ];
+
+    const failures = [];
+
+    for (const candidate of candidates) {
+      try {
+        ensureDir(pyodide.FS, candidate);
+        ensureDir(pyodide.FS, joinPath(candidate, "uploads"));
+        ensureDir(pyodide.FS, joinPath(candidate, "py"));
+
+        APP_ROOT = candidate;
+        PY_ROOT = joinPath(candidate, "py");
+        UPLOAD_ROOT = joinPath(candidate, "uploads");
+        return;
+      } catch (error) {
+        failures.push(candidate + ": " + normalizeError(error));
+      }
+    }
+
+    throw new Error(
+      "Unable to create a writable runtime workspace. Tried: " + failures.join(" | ")
+    );
+  }
+
   async function ensureMicropip() {
     if (micropipReady) {
       return;
@@ -170,6 +212,9 @@
       pyodideInstance = null;
       micropipReady = false;
       installedOptionalPackages.clear();
+      APP_ROOT = null;
+      PY_ROOT = null;
+      UPLOAD_ROOT = null;
     }
 
     if (runtimeInitPromise) {
@@ -181,8 +226,7 @@
       await loadPyodideScript();
 
       pyodideInstance = await window.loadPyodide({ indexURL: config.PYODIDE_INDEX_URL });
-      ensureDir(pyodideInstance.FS, APP_ROOT);
-      ensureDir(pyodideInstance.FS, UPLOAD_ROOT);
+      initializeWorkspacePaths(pyodideInstance);
 
       onStatus("Installing Python packages...");
       await installRuntimePackages(pyodideInstance);
@@ -205,6 +249,9 @@
       pyodideInstance = null;
       micropipReady = false;
       installedOptionalPackages.clear();
+      APP_ROOT = null;
+      PY_ROOT = null;
+      UPLOAD_ROOT = null;
       throw new Error(normalizeError(error));
     });
 

@@ -15,10 +15,38 @@
     let current = "";
     for (const part of parts) {
       current += "/" + part;
+      if (typeof fs.analyzePath === "function") {
+        const analyzed = fs.analyzePath(current);
+        if (analyzed && analyzed.exists) {
+          const mode =
+            analyzed.object && typeof analyzed.object.mode !== "undefined"
+              ? analyzed.object.mode
+              : analyzed.stat && typeof analyzed.stat.mode !== "undefined"
+                ? analyzed.stat.mode
+                : null;
+          if (mode !== null && typeof fs.isDir === "function" && fs.isDir(mode)) {
+            continue;
+          }
+          throw new Error("Runtime path exists but is not a directory: " + current);
+        }
+      }
+
       try {
         fs.mkdir(current);
       } catch (error) {
         const message = String(error && error.message ? error.message : error);
+        const analyzed = typeof fs.analyzePath === "function" ? fs.analyzePath(current) : null;
+        const mode =
+          analyzed && analyzed.exists
+            ? analyzed.object && typeof analyzed.object.mode !== "undefined"
+              ? analyzed.object.mode
+              : analyzed.stat && typeof analyzed.stat.mode !== "undefined"
+                ? analyzed.stat.mode
+                : null
+            : null;
+        if (mode !== null && typeof fs.isDir === "function" && fs.isDir(mode)) {
+          continue;
+        }
         if (!message.includes("File exists")) {
           throw new Error(
             "Failed to create runtime directory '" +

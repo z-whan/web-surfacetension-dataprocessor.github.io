@@ -53,6 +53,9 @@ def guess_time_column(columns: Sequence[object]) -> object | None:
 
 def guess_gamma_column(columns: Sequence[object]) -> object | None:
     candidates = (
+        "Avg",
+        "Average",
+        "Mean",
         "I.T.(mN/m)",
         "I.T. (mN/m)",
         "IT (mN/m)",
@@ -68,6 +71,8 @@ def guess_gamma_column(columns: Sequence[object]) -> object | None:
 
     for col in columns:
         name = str(col).lower()
+        if name in ("avg", "average", "mean"):
+            return col
         if "i.t." in name or "mn/m" in name or "surface" in name:
             return col
 

@@ -9,8 +9,7 @@ from DataProcessor.services.cmc_analysis import (
     infer_concentration_from_filename,
     summarize_droplet_means,
 )
-from DataProcessor.services.csv_to_xlsx import csv_to_xlsx
-from DataProcessor.services.dataframe_loader import load_plot_dataframe, read_table_robust
+from DataProcessor.services.dataframe_loader import load_plot_dataframe
 from DataProcessor.services.errors import DataProcessingError
 from DataProcessor.services.plot_analysis import prepare_plot_dataset
 
@@ -47,7 +46,6 @@ def get_runtime_metadata() -> dict[str, Any]:
         "supportsLocalOnly": True,
         "supportedExtensions": [".csv", ".xlsx", ".xls"],
         "pythonBackedFeatures": [
-            "CSV to XLSX conversion",
             "Time-series experiment parsing",
             "CMC droplet statistics",
             "Filename concentration inference",
@@ -58,15 +56,6 @@ def get_runtime_metadata() -> dict[str, Any]:
 def infer_concentration(filename: str) -> dict[str, Any]:
     value = infer_concentration_from_filename(filename)
     return {"filename": filename, "value": _finite_or_none(value)}
-
-
-def convert_csv_to_xlsx_in_fs(source_path: str) -> dict[str, Any]:
-    out_path = csv_to_xlsx(source_path)
-    return {
-        "sourcePath": source_path,
-        "outputPath": out_path,
-        "downloadName": os.path.basename(out_path),
-    }
 
 
 def analyze_plot_file(
@@ -148,7 +137,9 @@ def analyze_cmc_files(
         if concentration < 0:
             raise DataProcessingError(f"Concentration for '{filename}' must be >= 0.")
 
-        df = read_table_robust(path)
+        # Reuse the same robust loader as the plot workflow so FAMAS-style CSVs
+        # and encoded lab exports behave consistently across both tools.
+        df = load_plot_dataframe(path)
         droplet_means = compute_droplet_means(df, t_min=t_min, t_max=t_max)
         mean, std = summarize_droplet_means(droplet_means)
 

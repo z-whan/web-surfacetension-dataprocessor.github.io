@@ -1,7 +1,6 @@
 (function () {
   const config = window.SurfaceLabConfig;
   const charts = window.SurfaceLabCharts;
-  const downloads = window.SurfaceLabDownloads;
   const pyodideClient = window.SurfaceLabPyodide;
 
   const state = {
@@ -9,9 +8,6 @@
     plot: {
       file: null,
       payload: null,
-    },
-    convert: {
-      file: null,
     },
     cmc: {
       rows: [],
@@ -28,10 +24,6 @@
     runtimeRetry: document.querySelector("#runtime-retry"),
     tabButtons: Array.from(document.querySelectorAll("[data-tab-button]")),
     panels: Array.from(document.querySelectorAll("[data-tab-panel]")),
-
-    convertInput: document.querySelector("#convert-file"),
-    convertMeta: document.querySelector("[data-convert-meta]"),
-    convertButton: document.querySelector("#convert-run"),
 
     plotInput: document.querySelector("#plot-file"),
     plotMeta: document.querySelector("[data-plot-meta]"),
@@ -176,13 +168,6 @@
     });
   }
 
-  function handleConvertSelection() {
-    clearError();
-    const file = dom.convertInput.files[0];
-    state.convert.file = file || null;
-    dom.convertMeta.textContent = describeFile(state.convert.file);
-  }
-
   function handlePlotSelection() {
     clearError();
     const file = dom.plotInput.files[0];
@@ -206,30 +191,6 @@
     dom.cmcExport.disabled = true;
     renderCmcTable();
     renderCmcSummary(null);
-  }
-
-  async function runConvert() {
-    if (!state.convert.file) {
-      throw new Error("Please choose a CSV file first.");
-    }
-
-    setStatus("Preparing XLSX export support...");
-    await pyodideClient.ensureOptionalPackages(config.OPTIONAL_PYTHON_PACKAGES.xlsx);
-
-    const staged = await pyodideClient.stageBrowserFile(state.convert.file, "convert");
-    try {
-      const result = await pyodideClient.callBridge("convert_csv_to_xlsx_in_fs", staged.fsPath);
-      const bytes = pyodideClient.readBinaryFile(result.outputPath);
-      downloads.downloadBytes(
-        result.downloadName,
-        bytes,
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      );
-      pyodideClient.removeFsFile(result.outputPath);
-      setStatus("Converted " + state.convert.file.name + " locally in your browser.");
-    } finally {
-      pyodideClient.removeFsFile(staged.fsPath);
-    }
   }
 
   async function runPlot() {
@@ -397,15 +358,12 @@
   }
 
   function bindActions() {
-    dom.convertInput.accept = ".csv";
     dom.plotInput.accept = config.ACCEPTED_DATA_EXTENSIONS;
     dom.cmcInput.accept = config.ACCEPTED_DATA_EXTENSIONS;
 
-    dom.convertInput.addEventListener("change", handleConvertSelection);
     dom.plotInput.addEventListener("change", handlePlotSelection);
     dom.cmcInput.addEventListener("change", handleCmcSelection);
 
-    dom.convertButton.addEventListener("click", withUiLock(runConvert));
     dom.plotAnalyze.addEventListener("click", withUiLock(runPlot));
     dom.cmcAnalyze.addEventListener("click", withUiLock(runCmc));
     dom.runtimeRetry.addEventListener("click", () => {
@@ -429,7 +387,7 @@
     bindTabs();
     bindActions();
     bindCmcTableEditing();
-    activateTab("convert");
+    activateTab("plot");
     setRuntimeReady(false);
 
     if (location.protocol === "file:") {

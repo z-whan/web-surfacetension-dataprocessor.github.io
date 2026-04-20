@@ -1,6 +1,6 @@
 (function () {
   const config = window.SurfaceLabConfig;
-  const APP_ROOT = "/home/pyodide/surface_lab";
+  const APP_ROOT = "/surface_lab";
   const PY_ROOT = APP_ROOT + "/py";
   const UPLOAD_ROOT = APP_ROOT + "/uploads";
 

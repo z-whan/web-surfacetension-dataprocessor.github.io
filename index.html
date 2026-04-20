@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Surface Tension Browser Lab</title>
+    <meta
+      name="description"
+      content="A static Pyodide-powered browser app for local surface-tension data conversion, plotting, and CMC analysis."
+    />
+    <link rel="stylesheet" href="./assets/css/main.css?v=20260420c" />
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
+    <script src="./assets/js/config.js?v=20260420c" defer></script>
+    <script src="./assets/js/python-sources.js?v=20260420c" defer></script>
+    <script src="./assets/js/downloads.js?v=20260420c" defer></script>
+    <script src="./assets/js/charts.js?v=20260420c" defer></script>
+    <script src="./assets/js/pyodide-client.js?v=20260420c" defer></script>
+    <script src="./assets/js/app.js?v=20260420c" defer></script>
+  </head>
+  <body>
+    <main class="page-shell">
+      <section class="hero">
+        <div class="hero-grid">
+          <div>
+            <p class="eyebrow">Static Web Conversion</p>
+            <h1>Surface Tension Browser Lab</h1>
+            <p class="hero-copy">
+              现有桌面 Python 数据分析工具已经被拆成一个可静态发布的网页版本。文件只在浏览器本地读取和处理，
+              Python 逻辑通过 Pyodide 在页面里运行，不需要任何 Flask、Django、FastAPI 或 Node 后端。
+            </p>
+            <div class="hero-points">
+              <div class="hero-point">CSV 到 XLSX 转换仍然由 Python 完成，并在浏览器中本地下载。</div>
+              <div class="hero-point">实验列解析、时间区间筛选、CMC 液滴均值统计保持 Python 主导。</div>
+              <div class="hero-point">前端只负责文件输入、状态管理、图表渲染和导出，不上传用户数据。</div>
+            </div>
+          </div>
+
+          <aside class="status-card">
+            <div class="status-top">
+              <h2>Runtime</h2>
+              <span class="runtime-tag" data-runtime-tag data-ready="false">Booting</span>
+            </div>
+            <p class="status-text" data-status-text>Preparing browser-local Python runtime...</p>
+            <div class="button-row">
+              <button id="runtime-retry" class="ghost-button" type="button">
+                Retry Runtime
+              </button>
+            </div>
+            <div class="stack-list">
+              <div class="stack-chip">HTML + CSS + JavaScript UI shell</div>
+              <div class="stack-chip">Pyodide runs Python in-browser</div>
+              <div class="stack-chip">Plotly renders interactive plots locally</div>
+            </div>
+            <div class="error-banner" data-error-box hidden>
+              <strong>Runtime / Analysis Error</strong>
+              <div data-error-text></div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <nav class="tabs" aria-label="Analysis workflows">
+          <button class="tab-button" type="button" data-tab-button="convert" data-active="true">
+            CSV → XLSX
+          </button>
+          <button class="tab-button" type="button" data-tab-button="plot" data-active="false">
+            Time-series Plot
+          </button>
+          <button class="tab-button" type="button" data-tab-button="cmc" data-active="false">
+            CMC Analysis
+          </button>
+        </nav>
+
+        <section class="panel" data-tab-panel="convert">
+          <header class="panel-header">
+            <div>
+              <h2>Local CSV Conversion</h2>
+              <p>
+                这个流程复用了原项目的 `read_csv_robust` 和 `csv_to_xlsx` 思路。文件先进入浏览器内存文件系统，
+                再由 Python 读取、解析、导出为 XLSX，最后直接在本地下载。
+              </p>
+            </div>
+            <div class="privacy-badge">No upload · Static deploy safe</div>
+          </header>
+
+          <div class="dual-grid">
+            <div class="field-card">
+              <h3>Source File</h3>
+              <p>支持 `.csv` 数据文件。编码检测、分隔符猜测、元数据行跳过仍由 Python 处理。</p>
+              <div class="field-grid">
+                <div class="field">
+                  <label for="convert-file">Choose CSV</label>
+                  <input id="convert-file" type="file" accept=".csv" />
+                </div>
+                <div class="file-meta" data-convert-meta>No file selected yet.</div>
+                <div class="button-row">
+                  <button
+                    id="convert-run"
+                    class="primary-button"
+                    type="button"
+                    data-requires-runtime="true"
+                  >
+                    Convert and Download XLSX
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="table-card">
+              <h3>Responsibility Split</h3>
+              <p>为了保证静态部署和本地隐私，职责拆分如下：</p>
+              <div class="stack-list">
+                <div class="stack-chip"><strong>Python:</strong> CSV 解析、编码检测、XLSX 导出</div>
+                <div class="stack-chip"><strong>JavaScript:</strong> 文件选择、内存 staging、本地下载</div>
+                <div class="stack-chip"><strong>Deployment:</strong> GitHub Pages / Netlify / Cloudflare Pages</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" data-tab-panel="plot" hidden>
+          <header class="panel-header">
+            <div>
+              <h2>Time-series Plot</h2>
+              <p>
+                保留原工具的多实验列识别、自动连续数值区间识别、行范围控制和实验范围解析；
+                前端将 Python 输出的数列结果交给 Plotly 绘图。
+              </p>
+            </div>
+            <div class="privacy-badge">Python logic stays in browser</div>
+          </header>
+
+          <div class="analysis-layout">
+            <div class="field-card">
+              <h3>Analysis Inputs</h3>
+              <div class="field-grid">
+                <div class="field">
+                  <label for="plot-file">Choose CSV / XLSX / XLS</label>
+                  <input id="plot-file" type="file" />
+                </div>
+                <div class="file-meta" data-plot-meta>No file selected yet.</div>
+
+                <div class="form-grid">
+                  <div class="field">
+                    <label for="plot-start">Row Start</label>
+                    <input id="plot-start" type="text" placeholder="optional" />
+                  </div>
+                  <div class="field">
+                    <label for="plot-end">Row End</label>
+                    <input id="plot-end" type="text" placeholder="optional" />
+                  </div>
+                  <div class="field">
+                    <label for="plot-exp-range">Experiment Range</label>
+                    <input id="plot-exp-range" type="text" placeholder="e.g. 1-3,5" />
+                  </div>
+                  <label class="checkbox-row" for="plot-avg-only">
+                    <input id="plot-avg-only" type="checkbox" />
+                    Plot Avg. only
+                  </label>
+                </div>
+
+                <div class="button-row">
+                  <button
+                    id="plot-run"
+                    class="primary-button"
+                    type="button"
+                    data-requires-runtime="true"
+                  >
+                    Analyze and Plot
+                  </button>
+                  <button id="plot-export" class="secondary-button" type="button" disabled>
+                    Export Plot PNG
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="plot-card">
+              <h3>Rendered Plot</h3>
+              <div class="metric-grid" data-plot-summary></div>
+              <div id="plot-canvas" class="plot-surface"></div>
+              <p class="footer-note">
+                图表在浏览器侧生成。若输入为空范围，Python 会按原逻辑寻找最长连续有效区间。
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" data-tab-panel="cmc" hidden>
+          <header class="panel-header">
+            <div>
+              <h2>CMC Batch Analysis</h2>
+              <p>
+                浏览器会批量读取多个本地文件，由 Python 逐个计算液滴时间窗口均值与标准差，再由前端绘制误差棒曲线。
+              </p>
+            </div>
+            <div class="privacy-badge">Batch files stay local</div>
+          </header>
+
+          <div class="analysis-layout">
+            <div class="field-card">
+              <h3>Batch Setup</h3>
+              <div class="field-grid">
+                <div class="field">
+                  <label for="cmc-files">Choose data files</label>
+                  <input id="cmc-files" type="file" multiple />
+                </div>
+
+                <div class="form-grid">
+                  <div class="field">
+                    <label for="cmc-time-min">Time min (ms)</label>
+                    <input id="cmc-time-min" type="text" placeholder="e.g. 50" />
+                  </div>
+                  <div class="field">
+                    <label for="cmc-time-max">Time max (ms)</label>
+                    <input id="cmc-time-max" type="text" placeholder="e.g. 150" />
+                  </div>
+                  <div class="field">
+                    <label for="cmc-unit">Concentration unit</label>
+                    <input id="cmc-unit" type="text" value="mM" />
+                  </div>
+                  <label class="checkbox-row" for="cmc-use-log">
+                    <input id="cmc-use-log" type="checkbox" />
+                    Use log10 C
+                  </label>
+                </div>
+
+                <div class="button-row">
+                  <button
+                    id="cmc-run"
+                    class="primary-button"
+                    type="button"
+                    data-requires-runtime="true"
+                  >
+                    Analyze CMC Curve
+                  </button>
+                  <button id="cmc-export" class="secondary-button" type="button" disabled>
+                    Export Plot PNG
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="plot-card">
+              <h3>CMC Plot</h3>
+              <div class="metric-grid" data-cmc-summary></div>
+              <div id="cmc-canvas" class="plot-surface"></div>
+            </div>
+          </div>
+
+          <div class="table-card">
+            <h3>Files and Concentrations</h3>
+            <p>选中文件后会尝试沿用原有 Python 规则从文件名推断浓度，你也可以直接手动修改。</p>
+            <div class="empty-state" data-cmc-empty>
+              Choose one or more local files to populate the batch table.
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>File</th>
+                    <th>Concentration</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody data-cmc-table-body></tbody>
+              </table>
+            </div>
+            <p class="hint">支持 `.csv`, `.xlsx`, `.xls`。分析前不会上传到任何服务器。</p>
+          </div>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>

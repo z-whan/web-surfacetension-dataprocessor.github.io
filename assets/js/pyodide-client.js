@@ -7,6 +7,8 @@
   let pyodideInstance = null;
   let bridgeModule = null;
   let runtimeInitPromise = null;
+  let micropipReady = false;
+  const installedOptionalPackages = new Set();
 
   function ensureDir(fs, dirPath) {
     const parts = dirPath.split("/").filter(Boolean);
@@ -25,6 +27,29 @@
 
   function sanitizeFilename(name) {
     return name.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  }
+
+  function normalizeError(error) {
+    if (!error) {
+      return "Unknown error";
+    }
+    if (typeof error === "string") {
+      return error;
+    }
+    if (error.message) {
+      return error.message;
+    }
+    if (typeof error.toString === "function" && error.toString !== Object.prototype.toString) {
+      const text = error.toString();
+      if (text && text !== "[object Object]") {
+        return text;
+      }
+    }
+    try {
+      return JSON.stringify(error, null, 2);
+    } catch (_jsonError) {
+      return String(error);
+    }
   }
 
   function convertResult(result) {
@@ -74,11 +99,42 @@
 
   async function installRuntimePackages(pyodide) {
     await pyodide.loadPackage(config.PYTHON_PACKAGES);
-    pyodide.globals.set("micropip_packages", config.MICROPIP_PACKAGES);
-    await pyodide.runPythonAsync(
-      "import micropip\nawait micropip.install(micropip_packages.to_py())\n"
-    );
-    pyodide.globals.delete("micropip_packages");
+  }
+
+  async function ensureMicropip() {
+    if (micropipReady) {
+      return;
+    }
+    await pyodideInstance.loadPackage(["micropip"]);
+    micropipReady = true;
+  }
+
+  async function ensureOptionalPackages(packages) {
+    if (!packages || !packages.length) {
+      return;
+    }
+    if (!pyodideInstance) {
+      throw new Error("Python runtime is not ready yet.");
+    }
+
+    const missingPackages = packages.filter((pkg) => !installedOptionalPackages.has(pkg));
+    if (!missingPackages.length) {
+      return;
+    }
+
+    await ensureMicropip();
+    pyodideInstance.globals.set("optional_packages", missingPackages);
+
+    try {
+      await pyodideInstance.runPythonAsync(
+        "import micropip\nawait micropip.install(optional_packages.to_py())\n"
+      );
+      missingPackages.forEach((pkg) => installedOptionalPackages.add(pkg));
+    } catch (error) {
+      throw new Error("Optional Python package installation failed: " + normalizeError(error));
+    } finally {
+      pyodideInstance.globals.delete("optional_packages");
+    }
   }
 
   function loadPyodideScript() {
@@ -101,6 +157,8 @@
       runtimeInitPromise = null;
       bridgeModule = null;
       pyodideInstance = null;
+      micropipReady = false;
+      installedOptionalPackages.clear();
     }
 
     if (runtimeInitPromise) {
@@ -134,7 +192,9 @@
       runtimeInitPromise = null;
       bridgeModule = null;
       pyodideInstance = null;
-      throw error;
+      micropipReady = false;
+      installedOptionalPackages.clear();
+      throw new Error(normalizeError(error));
     });
 
     return runtimeInitPromise;
@@ -209,6 +269,8 @@
 
   window.SurfaceLabPyodide = {
     initRuntime,
+    ensureOptionalPackages,
+    normalizeError,
     stageBrowserFile,
     callBridge,
     readBinaryFile,

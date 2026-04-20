@@ -61,6 +61,10 @@
     dom.statusText.textContent = message;
   }
 
+  function normalizeUiError(error) {
+    return pyodideClient.normalizeError(error);
+  }
+
   function setRuntimeReady(ready) {
     state.runtimeReady = ready;
     dom.runtimeTag.textContent = ready ? "Ready" : "Booting";
@@ -209,6 +213,9 @@
       throw new Error("Please choose a CSV file first.");
     }
 
+    setStatus("Preparing XLSX export support...");
+    await pyodideClient.ensureOptionalPackages(config.OPTIONAL_PYTHON_PACKAGES.xlsx);
+
     const staged = await pyodideClient.stageBrowserFile(state.convert.file, "convert");
     try {
       const result = await pyodideClient.callBridge("convert_csv_to_xlsx_in_fs", staged.fsPath);
@@ -228,6 +235,15 @@
   async function runPlot() {
     if (!state.plot.file) {
       throw new Error("Please choose a data file first.");
+    }
+
+    const lowerName = state.plot.file.name.toLowerCase();
+    if (lowerName.endsWith(".xlsx")) {
+      setStatus("Preparing XLSX reading support...");
+      await pyodideClient.ensureOptionalPackages(config.OPTIONAL_PYTHON_PACKAGES.xlsx);
+    } else if (lowerName.endsWith(".xls")) {
+      setStatus("Preparing XLS reading support...");
+      await pyodideClient.ensureOptionalPackages(config.OPTIONAL_PYTHON_PACKAGES.xls);
     }
 
     const staged = await pyodideClient.stageBrowserFile(state.plot.file, "plot");
@@ -260,6 +276,17 @@
   async function runCmc() {
     if (!state.cmc.rows.length) {
       throw new Error("Please choose at least one file for CMC analysis.");
+    }
+
+    const needsXlsx = state.cmc.rows.some((row) => row.filename.toLowerCase().endsWith(".xlsx"));
+    const needsXls = state.cmc.rows.some((row) => row.filename.toLowerCase().endsWith(".xls"));
+    if (needsXlsx) {
+      setStatus("Preparing XLSX reading support...");
+      await pyodideClient.ensureOptionalPackages(config.OPTIONAL_PYTHON_PACKAGES.xlsx);
+    }
+    if (needsXls) {
+      setStatus("Preparing XLS reading support...");
+      await pyodideClient.ensureOptionalPackages(config.OPTIONAL_PYTHON_PACKAGES.xls);
     }
 
     const stagedRows = [];
@@ -312,7 +339,7 @@
         clearError();
         await handler();
       } catch (error) {
-        showError(error && error.message ? error.message : String(error));
+        showError(normalizeUiError(error));
       }
     };
   }
@@ -329,7 +356,7 @@
       dom.runtimeTag.title = metadata.pythonBackedFeatures.join(" • ");
     } catch (error) {
       setRuntimeReady(false);
-      showError(error && error.message ? error.message : String(error));
+      showError(normalizeUiError(error));
       setStatus("Runtime failed to initialize.");
     }
   }

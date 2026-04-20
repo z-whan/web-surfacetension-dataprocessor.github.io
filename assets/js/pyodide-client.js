@@ -1,6 +1,6 @@
 (function () {
   const config = window.SurfaceLabConfig;
-  const APP_ROOT = "/workspace";
+  const APP_ROOT = "/home/pyodide/surface_lab";
   const PY_ROOT = APP_ROOT + "/py";
   const UPLOAD_ROOT = APP_ROOT + "/uploads";
 
@@ -18,8 +18,16 @@
       try {
         fs.mkdir(current);
       } catch (error) {
-        if (!String(error && error.message ? error.message : error).includes("File exists")) {
-          throw error;
+        const message = String(error && error.message ? error.message : error);
+        if (!message.includes("File exists")) {
+          throw new Error(
+            "Failed to create runtime directory '" +
+              current +
+              "' while preparing '" +
+              dirPath +
+              "': " +
+              normalizeError(error)
+          );
         }
       }
     }
@@ -38,6 +46,9 @@
     }
     if (error.message) {
       return error.message;
+    }
+    if (error.name === "ErrnoError" && typeof error.errno !== "undefined") {
+      return "Filesystem error (" + error.name + ", errno=" + error.errno + ")";
     }
     if (typeof error.toString === "function" && error.toString !== Object.prototype.toString) {
       const text = error.toString();

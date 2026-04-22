@@ -172,6 +172,11 @@ select {
   gap: 12px;
 }
 
+.field-hint {
+  color: #666;
+  font-size: 12px;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -219,6 +224,88 @@ select {
 .parameter-grid {
   display: grid;
   gap: 12px;
+}
+
+.collapsible-section,
+.collapsible-card {
+  border: 1px solid #d7d7d7;
+  background: #fafafa;
+}
+
+.collapsible-section > summary,
+.collapsible-card > summary {
+  list-style: none;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.collapsible-section > summary::-webkit-details-marker,
+.collapsible-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.collapsible-section > summary::after,
+.collapsible-card > summary::after {
+  content: "+";
+  float: right;
+  color: #666;
+}
+
+.collapsible-section[open] > summary::after,
+.collapsible-card[open] > summary::after {
+  content: "−";
+}
+
+.collapsible-section > summary {
+  padding: 10px 12px;
+}
+
+.collapsible-section-body {
+  padding: 0 12px 12px;
+}
+
+.collapsible-card {
+  padding: 0;
+}
+
+.collapsible-card > summary {
+  padding: 14px;
+  background: #f7f7f7;
+}
+
+.collapsible-card-body {
+  padding: 14px;
+}
+
+.collapsible-card-body > p {
+  margin: 0 0 12px;
+}
+
+.plot-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.slider-field {
+  min-width: 220px;
+  display: grid;
+  gap: 6px;
+}
+
+.slider-field label {
+  font-weight: 700;
+}
+
+.slider-field input[type="range"] {
+  width: 100%;
+}
+
+.slider-value {
+  color: #555;
+  font-weight: 700;
 }
 
 .result-text {
@@ -378,6 +465,15 @@ th {
   .analysis-layout,
   .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .plot-toolbar {
+    flex-direction: column;
+  }
+
+  .slider-field {
+    min-width: 0;
+    width: 100%;
   }
 
   .checkbox-row {

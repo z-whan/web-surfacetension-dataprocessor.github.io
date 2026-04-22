@@ -27,6 +27,7 @@
         linecolor: "#999999",
         mirror: true,
         type: options.yScale === "log" ? "log" : "linear",
+        range: options.yRange || undefined,
       },
       legend: {
         bgcolor: "#ffffff",
@@ -39,6 +40,47 @@
         x: 0,
       },
     };
+  }
+
+  function appendFiniteValues(values, seriesList) {
+    seriesList.forEach((series) => {
+      series.y.forEach((value) => {
+        const numeric = Number(value);
+        if (Number.isFinite(numeric)) {
+          values.push(numeric);
+        }
+      });
+    });
+  }
+
+  function computeYRange(seriesList, spanPercent) {
+    const values = [];
+    appendFiniteValues(values, seriesList);
+
+    if (!values.length) {
+      return null;
+    }
+
+    let minValue = values[0];
+    let maxValue = values[0];
+    values.forEach((value) => {
+      if (value < minValue) {
+        minValue = value;
+      }
+      if (value > maxValue) {
+        maxValue = value;
+      }
+    });
+
+    const midpoint = (minValue + maxValue) / 2;
+    const baseSpan =
+      maxValue > minValue ? maxValue - minValue : Math.max(Math.abs(midpoint) * 0.05, 1);
+    const scale = Math.max(0.2, Number(spanPercent) || 1) / 100;
+    const halfSpan = (baseSpan * scale) / 2;
+
+    // Keep the slider intuitive by scaling the detected data span around the
+    // visible midpoint. Lower values zoom in; higher values zoom out.
+    return [midpoint - halfSpan, midpoint + halfSpan];
   }
 
   function buildRawTrace(series, index) {
@@ -72,6 +114,7 @@
     const trendPayload = opts.trendPayload || null;
     const showRaw = typeof opts.showRaw === "boolean" ? opts.showRaw : true;
     const traces = [];
+    const visibleSeries = [];
 
     if (!trendPayload || showRaw) {
       rawPayload.series.forEach((series, index) => {
@@ -82,14 +125,18 @@
           trace.name = series.name + " raw";
         }
         traces.push(trace);
+        visibleSeries.push(series);
       });
     }
 
     if (trendPayload) {
       trendPayload.series.forEach((series, index) => {
         traces.push(buildTrendTrace(series, index));
+        visibleSeries.push(series);
       });
     }
+
+    const yRange = computeYRange(visibleSeries, opts.ySpanPercent || 100);
 
     await Plotly.react(
       target,
@@ -100,6 +147,7 @@
         title: "Time-series Plot",
         xScale: "linear",
         yScale: "linear",
+        yRange,
       }),
       { responsive: true, displaylogo: false }
     );

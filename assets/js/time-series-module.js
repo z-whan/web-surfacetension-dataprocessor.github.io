@@ -324,6 +324,8 @@
         plotExport: document.querySelector("#plot-export"),
         plotSummary: document.querySelector("[data-plot-summary]"),
         plotCanvas: document.querySelector("#plot-canvas"),
+        plotYSpan: document.querySelector("#plot-y-span"),
+        plotYSpanValue: document.querySelector("[data-plot-y-span-value]"),
         trendMethod: document.querySelector("#plot-trend-method"),
         trendParams: document.querySelector("#plot-trend-params"),
         trendApply: document.querySelector("#plot-trend-apply"),
@@ -352,6 +354,7 @@
       this.dom.helpContent.innerHTML = buildHelpHtml();
       this.renderTrendStatus("No trend has been applied yet.");
       this.renderNoiseOutput(null);
+      this.updateYSpanLabel();
 
       this.dom.plotInput.addEventListener("change", () => this.handleFileSelection());
       this.dom.trendMethod.addEventListener("change", () => {
@@ -361,6 +364,9 @@
         renderParameterFields(this.dom.noiseParams, NOISE_METHODS[this.dom.noiseMethod.value]);
       });
       this.dom.showRawToggle.addEventListener("change", () => this.handleShowRawToggle());
+      if (this.dom.plotYSpan) {
+        this.dom.plotYSpan.addEventListener("input", () => this.handleYSpanChange());
+      }
       this.dom.plotAnalyze.addEventListener("click", () => {
         this.withRuntime(() => this.runPlot())();
       });
@@ -420,6 +426,13 @@
       }
     }
 
+    handleYSpanChange() {
+      this.updateYSpanLabel();
+      if (this.state.rawPayload) {
+        this.renderCurrentPlot();
+      }
+    }
+
     describeFile(file) {
       if (!file) {
         return "No file selected yet.";
@@ -440,6 +453,17 @@
       if (!this.state.file) {
         throw new Error("Please choose a data file first.");
       }
+    }
+
+    currentYSpanPercent() {
+      return this.dom.plotYSpan ? Number(this.dom.plotYSpan.value) || 100 : 100;
+    }
+
+    updateYSpanLabel() {
+      if (!this.dom.plotYSpanValue) {
+        return;
+      }
+      this.dom.plotYSpanValue.textContent = `${this.currentYSpanPercent()}%`;
     }
 
     async ensureFileDependencies() {
@@ -590,6 +614,7 @@
       await this.charts.renderTimeSeriesPlot(this.dom.plotCanvas, this.state.rawPayload, {
         trendPayload: this.state.trendPayload,
         showRaw: this.state.showRaw,
+        ySpanPercent: this.currentYSpanPercent(),
       });
     }
 

@@ -8,14 +8,14 @@
       name="description"
       content="A static Pyodide-powered browser app for local surface-tension plotting, trend extraction, noise analysis, and CMC analysis."
     />
-    <link rel="stylesheet" href="./assets/css/main.css?v=20260422b" />
+    <link rel="stylesheet" href="./assets/css/main.css?v=20260422c" />
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
-    <script src="./assets/js/config.js?v=20260422b" defer></script>
-    <script src="./assets/js/python-sources.js?v=20260422b" defer></script>
-    <script src="./assets/js/charts.js?v=20260422b" defer></script>
-    <script src="./assets/js/pyodide-client.js?v=20260422b" defer></script>
-    <script src="./assets/js/time-series-module.js?v=20260422b" defer></script>
-    <script src="./assets/js/app.js?v=20260422b" defer></script>
+    <script src="./assets/js/config.js?v=20260422c" defer></script>
+    <script src="./assets/js/python-sources.js?v=20260422c" defer></script>
+    <script src="./assets/js/charts.js?v=20260422c" defer></script>
+    <script src="./assets/js/pyodide-client.js?v=20260422c" defer></script>
+    <script src="./assets/js/time-series-module.js?v=20260422c" defer></script>
+    <script src="./assets/js/app.js?v=20260422c" defer></script>
   </head>
   <body>
     <main class="app-shell">
@@ -54,7 +54,7 @@
         <header class="panel-header panel-header-actions">
           <div>
             <h2>Time-series Plot</h2>
-            <p>Load one file, inspect the raw series, then add trend or noise analysis as needed.</p>
+            <p>Load one file, plot the signal, then expand extra tools only when needed.</p>
           </div>
           <div class="button-row">
             <button id="plot-help-button" class="ghost-button" type="button">Help</button>
@@ -74,14 +74,6 @@
 
                 <div class="form-grid">
                   <div class="field">
-                    <label for="plot-start">Row Start</label>
-                    <input id="plot-start" type="text" placeholder="Optional" />
-                  </div>
-                  <div class="field">
-                    <label for="plot-end">Row End</label>
-                    <input id="plot-end" type="text" placeholder="Optional" />
-                  </div>
-                  <div class="field">
                     <label for="plot-exp-range">Experiment Range</label>
                     <input id="plot-exp-range" type="text" placeholder="e.g. 1-3,5" />
                   </div>
@@ -90,6 +82,23 @@
                     Avg only
                   </label>
                 </div>
+
+                <details class="collapsible-section">
+                  <summary>Advanced Row Range</summary>
+                  <div class="collapsible-section-body">
+                    <div class="form-grid">
+                      <div class="field">
+                        <label for="plot-start">Row Start (row index)</label>
+                        <input id="plot-start" type="text" placeholder="Optional, 1-based" />
+                      </div>
+                      <div class="field">
+                        <label for="plot-end">Row End (row index)</label>
+                        <input id="plot-end" type="text" placeholder="Optional, 1-based" />
+                      </div>
+                    </div>
+                    <p class="field-hint">These limits use row indices, not seconds or milliseconds.</p>
+                  </div>
+                </details>
 
                 <div class="button-row">
                   <button
@@ -107,59 +116,73 @@
               </div>
             </div>
 
-            <div class="field-card">
-              <h3>Trend Extraction</h3>
-              <p>Apply a smoothing method to extract the trend from the current selection.</p>
-              <div class="field-grid">
-                <div class="field">
-                  <label for="plot-trend-method">Method</label>
-                  <select id="plot-trend-method"></select>
+            <details class="field-card collapsible-card">
+              <summary>Trend Extraction</summary>
+              <div class="collapsible-card-body">
+                <p>Apply a smoothing method to extract the trend from the current selection.</p>
+                <div class="field-grid">
+                  <div class="field">
+                    <label for="plot-trend-method">Method</label>
+                    <select id="plot-trend-method"></select>
+                  </div>
+                  <div id="plot-trend-params" class="parameter-grid"></div>
+                  <label class="checkbox-row checkbox-row-compact" for="plot-show-raw">
+                    <input id="plot-show-raw" type="checkbox" checked />
+                    Show raw signal
+                  </label>
+                  <div class="button-row">
+                    <button
+                      id="plot-trend-apply"
+                      class="primary-button"
+                      type="button"
+                      data-requires-runtime="true"
+                    >
+                      Apply Trend
+                    </button>
+                  </div>
+                  <div class="info-box" data-plot-trend-status>No trend has been applied yet.</div>
                 </div>
-                <div id="plot-trend-params" class="parameter-grid"></div>
-                <label class="checkbox-row checkbox-row-compact" for="plot-show-raw">
-                  <input id="plot-show-raw" type="checkbox" checked />
-                  Show raw signal
-                </label>
-                <div class="button-row">
-                  <button
-                    id="plot-trend-apply"
-                    class="primary-button"
-                    type="button"
-                    data-requires-runtime="true"
-                  >
-                    Apply Trend
-                  </button>
-                </div>
-                <div class="info-box" data-plot-trend-status>No trend has been applied yet.</div>
               </div>
-            </div>
+            </details>
 
-            <div class="field-card">
-              <h3>Noise Analysis</h3>
-              <p>Run one noise analysis method on the current selection.</p>
-              <div class="field-grid">
-                <div class="field">
-                  <label for="plot-noise-method">Method</label>
-                  <select id="plot-noise-method"></select>
-                </div>
-                <div id="plot-noise-params" class="parameter-grid"></div>
-                <div class="button-row">
-                  <button
-                    id="plot-noise-run"
-                    class="primary-button"
-                    type="button"
-                    data-requires-runtime="true"
-                  >
-                    Analyze Noise
-                  </button>
+            <details class="field-card collapsible-card">
+              <summary>Noise Analysis</summary>
+              <div class="collapsible-card-body">
+                <p>Run one noise analysis method on the current selection.</p>
+                <div class="field-grid">
+                  <div class="field">
+                    <label for="plot-noise-method">Method</label>
+                    <select id="plot-noise-method"></select>
+                  </div>
+                  <div id="plot-noise-params" class="parameter-grid"></div>
+                  <div class="button-row">
+                    <button
+                      id="plot-noise-run"
+                      class="primary-button"
+                      type="button"
+                      data-requires-runtime="true"
+                    >
+                      Analyze Noise
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
+            </details>
           </div>
 
           <div class="results-stack">
             <div class="plot-card">
-              <h3>Main Plot</h3>
+              <div class="plot-toolbar">
+                <div>
+                  <h3>Main Plot</h3>
+                  <p>Use the slider if the vertical span looks too flat or too tight.</p>
+                </div>
+                <div class="slider-field">
+                  <label for="plot-y-span">Y-axis Span</label>
+                  <input id="plot-y-span" type="range" min="40" max="140" step="5" value="100" />
+                  <span class="slider-value" data-plot-y-span-value>100%</span>
+                </div>
+              </div>
               <div class="metric-grid" data-plot-summary></div>
               <div id="plot-canvas" class="plot-surface"></div>
             </div>

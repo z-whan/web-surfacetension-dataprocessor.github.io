@@ -1,28 +1,28 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Surface Tension Data Tool</title>
+    <title>Surface Tension Analysis Tool</title>
     <meta
       name="description"
-      content="A static Pyodide-powered browser app for local surface-tension plotting and CMC analysis."
+      content="A static Pyodide-powered browser app for local surface-tension plotting, trend extraction, noise analysis, and CMC analysis."
     />
-    <link rel="stylesheet" href="./assets/css/main.css?v=20260420j" />
+    <link rel="stylesheet" href="./assets/css/main.css?v=20260422b" />
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
-    <script src="./assets/js/config.js?v=20260420j" defer></script>
-    <script src="./assets/js/python-sources.js?v=20260420j" defer></script>
-    <script src="./assets/js/downloads.js?v=20260420j" defer></script>
-    <script src="./assets/js/charts.js?v=20260420j" defer></script>
-    <script src="./assets/js/pyodide-client.js?v=20260420j" defer></script>
-    <script src="./assets/js/app.js?v=20260420j" defer></script>
+    <script src="./assets/js/config.js?v=20260422b" defer></script>
+    <script src="./assets/js/python-sources.js?v=20260422b" defer></script>
+    <script src="./assets/js/charts.js?v=20260422b" defer></script>
+    <script src="./assets/js/pyodide-client.js?v=20260422b" defer></script>
+    <script src="./assets/js/time-series-module.js?v=20260422b" defer></script>
+    <script src="./assets/js/app.js?v=20260422b" defer></script>
   </head>
   <body>
     <main class="app-shell">
       <header class="app-header">
         <div>
-          <h1>Surface Tension Data Tool</h1>
-          <p class="app-subtitle">Local processing only. Files stay in your browser.</p>
+          <h1>Surface Tension Analysis Tool</h1>
+          <p class="app-subtitle">Local processing only. Plotting, trend extraction, noise analysis, and CMC.</p>
         </div>
         <div class="status-panel">
           <div class="status-row">
@@ -51,63 +51,137 @@
       </nav>
 
       <section class="panel" data-tab-panel="plot">
-        <header class="panel-header">
+        <header class="panel-header panel-header-actions">
           <div>
             <h2>Time-series Plot</h2>
-            <p>Choose one file, set optional ranges, then run the plot.</p>
+            <p>Load one file, inspect the raw series, then add trend or noise analysis as needed.</p>
+          </div>
+          <div class="button-row">
+            <button id="plot-help-button" class="ghost-button" type="button">Help</button>
           </div>
         </header>
 
-        <div class="analysis-layout">
-          <div class="field-card">
-            <div class="field-grid">
-              <div class="field">
-                <label for="plot-file">Data File</label>
-                <input id="plot-file" type="file" />
-              </div>
-              <div class="file-meta" data-plot-meta>No file selected yet.</div>
+        <div class="analysis-layout analysis-layout-wide">
+          <div class="controls-stack">
+            <div class="field-card">
+              <h3>Data Selection</h3>
+              <div class="field-grid">
+                <div class="field">
+                  <label for="plot-file">Data File</label>
+                  <input id="plot-file" type="file" />
+                </div>
+                <div class="file-meta" data-plot-meta>No file selected yet.</div>
 
-              <div class="form-grid">
-                <div class="field">
-                  <label for="plot-start">Row Start</label>
-                  <input id="plot-start" type="text" placeholder="Optional" />
+                <div class="form-grid">
+                  <div class="field">
+                    <label for="plot-start">Row Start</label>
+                    <input id="plot-start" type="text" placeholder="Optional" />
+                  </div>
+                  <div class="field">
+                    <label for="plot-end">Row End</label>
+                    <input id="plot-end" type="text" placeholder="Optional" />
+                  </div>
+                  <div class="field">
+                    <label for="plot-exp-range">Experiment Range</label>
+                    <input id="plot-exp-range" type="text" placeholder="e.g. 1-3,5" />
+                  </div>
+                  <label class="checkbox-row" for="plot-avg-only">
+                    <input id="plot-avg-only" type="checkbox" />
+                    Avg only
+                  </label>
                 </div>
-                <div class="field">
-                  <label for="plot-end">Row End</label>
-                  <input id="plot-end" type="text" placeholder="Optional" />
+
+                <div class="button-row">
+                  <button
+                    id="plot-run"
+                    class="primary-button"
+                    type="button"
+                    data-requires-runtime="true"
+                  >
+                    Analyze and Plot
+                  </button>
+                  <button id="plot-export" class="secondary-button" type="button" disabled>
+                    Export PNG
+                  </button>
                 </div>
+              </div>
+            </div>
+
+            <div class="field-card">
+              <h3>Trend Extraction</h3>
+              <p>Apply a smoothing method to extract the trend from the current selection.</p>
+              <div class="field-grid">
                 <div class="field">
-                  <label for="plot-exp-range">Experiment Range</label>
-                  <input id="plot-exp-range" type="text" placeholder="e.g. 1-3,5" />
+                  <label for="plot-trend-method">Method</label>
+                  <select id="plot-trend-method"></select>
                 </div>
-                <label class="checkbox-row" for="plot-avg-only">
-                  <input id="plot-avg-only" type="checkbox" />
-                  Avg only
+                <div id="plot-trend-params" class="parameter-grid"></div>
+                <label class="checkbox-row checkbox-row-compact" for="plot-show-raw">
+                  <input id="plot-show-raw" type="checkbox" checked />
+                  Show raw signal
                 </label>
+                <div class="button-row">
+                  <button
+                    id="plot-trend-apply"
+                    class="primary-button"
+                    type="button"
+                    data-requires-runtime="true"
+                  >
+                    Apply Trend
+                  </button>
+                </div>
+                <div class="info-box" data-plot-trend-status>No trend has been applied yet.</div>
               </div>
+            </div>
 
-              <div class="button-row">
-                <button
-                  id="plot-run"
-                  class="primary-button"
-                  type="button"
-                  data-requires-runtime="true"
-                >
-                  Analyze and Plot
-                </button>
-                <button id="plot-export" class="secondary-button" type="button" disabled>
-                  Export PNG
-                </button>
+            <div class="field-card">
+              <h3>Noise Analysis</h3>
+              <p>Run one noise analysis method on the current selection.</p>
+              <div class="field-grid">
+                <div class="field">
+                  <label for="plot-noise-method">Method</label>
+                  <select id="plot-noise-method"></select>
+                </div>
+                <div id="plot-noise-params" class="parameter-grid"></div>
+                <div class="button-row">
+                  <button
+                    id="plot-noise-run"
+                    class="primary-button"
+                    type="button"
+                    data-requires-runtime="true"
+                  >
+                    Analyze Noise
+                  </button>
+                </div>
               </div>
             </div>
           </div>
 
-          <div class="plot-card">
-            <h3>Plot</h3>
-            <div class="metric-grid" data-plot-summary></div>
-            <div id="plot-canvas" class="plot-surface"></div>
+          <div class="results-stack">
+            <div class="plot-card">
+              <h3>Main Plot</h3>
+              <div class="metric-grid" data-plot-summary></div>
+              <div id="plot-canvas" class="plot-surface"></div>
+            </div>
+
+            <div class="table-card" data-plot-noise-card>
+              <h3>Noise Results</h3>
+              <p class="result-text" data-plot-noise-summary>No noise analysis yet.</p>
+              <div data-plot-noise-table></div>
+              <div id="plot-noise-canvas" class="plot-surface plot-surface-secondary" hidden></div>
+            </div>
           </div>
         </div>
+
+        <dialog id="plot-help-dialog" class="help-dialog">
+          <div class="help-dialog-body">
+            <div class="help-dialog-header">
+              <h3>Trend and Noise Help</h3>
+              <button id="plot-help-close" class="ghost-button" type="button">Close</button>
+            </div>
+            <div data-plot-help-content></div>
+          </div>
+        </dialog>
       </section>
 
       <section class="panel" data-tab-panel="cmc" hidden>

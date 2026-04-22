@@ -12,6 +12,7 @@ from DataProcessor.services.cmc_analysis import (
 from DataProcessor.services.dataframe_loader import load_plot_dataframe
 from DataProcessor.services.errors import DataProcessingError
 from DataProcessor.services.plot_analysis import prepare_plot_dataset
+from DataProcessor.services.time_series_analysis import analyze_noise, extract_trend_analysis
 
 
 def _finite_or_none(value: Any) -> float | int | str | None:
@@ -41,6 +42,30 @@ def _series_payload(x_values, y_values) -> list[dict[str, Any]]:
     return series
 
 
+def _summary_rows_payload(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    payload: list[dict[str, Any]] = []
+    for row in rows:
+        payload.append({key: _finite_or_none(value) for key, value in row.items()})
+    return payload
+
+
+def _load_plot_dataset(
+    source_path: str,
+    start_text: str,
+    end_text: str,
+    exp_range_text: str,
+    avg_only: bool,
+):
+    df = load_plot_dataframe(source_path)
+    return prepare_plot_dataset(
+        df=df,
+        start_text=start_text,
+        end_text=end_text,
+        exp_range_text=exp_range_text,
+        avg_only=avg_only,
+    )
+
+
 def get_runtime_metadata() -> dict[str, Any]:
     return {
         "supportsLocalOnly": True,
@@ -65,14 +90,7 @@ def analyze_plot_file(
     exp_range_text: str,
     avg_only: bool,
 ) -> dict[str, Any]:
-    df = load_plot_dataframe(source_path)
-    dataset = prepare_plot_dataset(
-        df=df,
-        start_text=start_text,
-        end_text=end_text,
-        exp_range_text=exp_range_text,
-        avg_only=avg_only,
-    )
+    dataset = _load_plot_dataset(source_path, start_text, end_text, exp_range_text, avg_only)
 
     y_values = dataset.y_values.to_numpy(dtype=float)
     finite_values = y_values[np.isfinite(y_values)]
@@ -92,6 +110,98 @@ def analyze_plot_file(
             "yMin": _finite_or_none(y_min),
             "yMax": _finite_or_none(y_max),
         },
+    }
+
+
+def extract_plot_trend(
+    source_path: str,
+    start_text: str,
+    end_text: str,
+    exp_range_text: str,
+    avg_only: bool,
+    method_key: str,
+    parameters: dict[str, Any],
+) -> dict[str, Any]:
+    dataset = _load_plot_dataset(source_path, start_text, end_text, exp_range_text, avg_only)
+    result = extract_trend_analysis(
+        x_label=dataset.x_label,
+        x_values=dataset.x_values,
+        y_values=dataset.y_values,
+        method_key=method_key,
+        parameters=parameters,
+    )
+    return {
+        "method": {
+            "key": result.method_key,
+            "label": result.method_label,
+            "parameters": {key: _finite_or_none(value) for key, value in result.parameters.items()},
+        },
+        "summaryText": result.summary_text,
+        "series": _series_payload(dataset.x_values, result.trend_values),
+    }
+
+
+def analyze_plot_noise(
+    source_path: str,
+    start_text: str,
+    end_text: str,
+    exp_range_text: str,
+    avg_only: bool,
+    method_key: str,
+    parameters: dict[str, Any],
+    trend_request: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    dataset = _load_plot_dataset(source_path, start_text, end_text, exp_range_text, avg_only)
+    trend_values = None
+
+    if trend_request is not None:
+        trend_method_key = str(trend_request.get("methodKey", "")).strip()
+        trend_parameters = trend_request.get("parameters", {}) or {}
+        if trend_method_key:
+            trend_values = extract_trend_analysis(
+                x_label=dataset.x_label,
+                x_values=dataset.x_values,
+                y_values=dataset.y_values,
+                method_key=trend_method_key,
+                parameters=trend_parameters,
+            ).trend_values
+
+    result = analyze_noise(
+        x_values=dataset.x_values,
+        y_values=dataset.y_values,
+        method_key=method_key,
+        parameters=parameters,
+        trend_values=trend_values,
+    )
+
+    plot_payload = None
+    if result.plot_payload is not None:
+        plot_payload = {
+            "title": result.plot_payload["title"],
+            "xLabel": result.plot_payload["xLabel"],
+            "yLabel": result.plot_payload["yLabel"],
+            "xScale": result.plot_payload["xScale"],
+            "yScale": result.plot_payload["yScale"],
+            "series": [
+                {
+                    "name": series["name"],
+                    "x": [_finite_or_none(value) for value in series["x"]],
+                    "y": [_finite_or_none(value) for value in series["y"]],
+                }
+                for series in result.plot_payload["series"]
+            ],
+        }
+
+    return {
+        "method": {
+            "key": result.method_key,
+            "label": result.method_label,
+            "parameters": {key: _finite_or_none(value) for key, value in result.parameters.items()},
+        },
+        "summaryText": result.summary_text,
+        "summaryColumns": result.summary_columns,
+        "summaryRows": _summary_rows_payload(result.summary_rows),
+        "plot": plot_payload,
     }
 
 

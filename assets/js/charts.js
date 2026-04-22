@@ -1,9 +1,9 @@
 (function () {
-  const PAPER_COLOR = "rgba(11, 18, 21, 0)";
-  const GRID_COLOR = "rgba(46, 82, 78, 0.18)";
-  const FONT_FAMILY = "'IBM Plex Sans', sans-serif";
-  const TEXT_COLOR = "#123438";
-  const PALETTE = ["#145a55", "#c75c2a", "#456fb3", "#7c5f98", "#3f7d5c", "#bb3e6d"];
+  const PAPER_COLOR = "#ffffff";
+  const GRID_COLOR = "#d9d9d9";
+  const FONT_FAMILY = "Arial, Helvetica, sans-serif";
+  const TEXT_COLOR = "#1f1f1f";
+  const PALETTE = ["#2f5d8a", "#8a4f2f", "#3c7a5b", "#7a3c68", "#6a6a2f", "#2f6e73"];
 
   function baseLayout(options) {
     return {
@@ -16,19 +16,22 @@
         title: { text: options.xLabel },
         gridcolor: GRID_COLOR,
         zeroline: false,
-        linecolor: "rgba(18, 52, 56, 0.35)",
+        linecolor: "#999999",
         mirror: true,
+        type: options.xScale === "log" ? "log" : "linear",
       },
       yaxis: {
         title: { text: options.yLabel },
         gridcolor: GRID_COLOR,
         zeroline: false,
-        linecolor: "rgba(18, 52, 56, 0.35)",
+        linecolor: "#999999",
         mirror: true,
+        type: options.yScale === "log" ? "log" : "linear",
       },
       legend: {
-        bgcolor: "rgba(255,255,255,0.72)",
-        borderwidth: 0,
+        bgcolor: "#ffffff",
+        bordercolor: "#d9d9d9",
+        borderwidth: 1,
         orientation: "h",
         yanchor: "bottom",
         y: 1.02,
@@ -38,14 +41,78 @@
     };
   }
 
-  async function renderTimeSeriesPlot(target, payload) {
+  function buildRawTrace(series, index) {
+    return {
+      type: "scatter",
+      mode: "lines",
+      name: series.name,
+      x: series.x,
+      y: series.y,
+      line: { width: 1.8, color: PALETTE[index % PALETTE.length] },
+    };
+  }
+
+  function buildTrendTrace(series, index) {
+    return {
+      type: "scatter",
+      mode: "lines",
+      name: series.name + " trend",
+      x: series.x,
+      y: series.y,
+      line: {
+        width: 2.4,
+        color: PALETTE[index % PALETTE.length],
+        dash: "dash",
+      },
+    };
+  }
+
+  async function renderTimeSeriesPlot(target, rawPayload, options) {
+    const opts = options || {};
+    const trendPayload = opts.trendPayload || null;
+    const showRaw = typeof opts.showRaw === "boolean" ? opts.showRaw : true;
+    const traces = [];
+
+    if (!trendPayload || showRaw) {
+      rawPayload.series.forEach((series, index) => {
+        const trace = buildRawTrace(series, index);
+        if (trendPayload) {
+          trace.line.width = 1.4;
+          trace.opacity = 0.55;
+          trace.name = series.name + " raw";
+        }
+        traces.push(trace);
+      });
+    }
+
+    if (trendPayload) {
+      trendPayload.series.forEach((series, index) => {
+        traces.push(buildTrendTrace(series, index));
+      });
+    }
+
+    await Plotly.react(
+      target,
+      traces,
+      baseLayout({
+        xLabel: rawPayload.xLabel,
+        yLabel: "I.T. (mN/m)",
+        title: "Time-series Plot",
+        xScale: "linear",
+        yScale: "linear",
+      }),
+      { responsive: true, displaylogo: false }
+    );
+  }
+
+  async function renderAnalysisPlot(target, payload) {
     const traces = payload.series.map((series, index) => ({
       type: "scatter",
       mode: "lines",
       name: series.name,
       x: series.x,
       y: series.y,
-      line: { width: 2.2, color: PALETTE[index % PALETTE.length] },
+      line: { width: 2, color: PALETTE[index % PALETTE.length] },
     }));
 
     await Plotly.react(
@@ -53,8 +120,10 @@
       traces,
       baseLayout({
         xLabel: payload.xLabel,
-        yLabel: "I.T. (mN/m)",
-        title: "Time-series Plot",
+        yLabel: payload.yLabel,
+        title: payload.title,
+        xScale: payload.xScale || "linear",
+        yScale: payload.yScale || "linear",
       }),
       { responsive: true, displaylogo: false }
     );
@@ -72,18 +141,18 @@
       ),
       hovertemplate: "%{text}<br>γ=%{y:.4f}<extra></extra>",
       marker: {
-        size: 10,
-        color: "#145a55",
-        line: { width: 1.5, color: "#e9f2ef" },
+        size: 8,
+        color: "#2f5d8a",
+        line: { width: 1, color: "#ffffff" },
       },
-      line: { width: 2.6, color: "#c75c2a" },
+      line: { width: 2.2, color: "#8a4f2f" },
       error_y: {
         type: "data",
         array: payload.points.map((point) => point.error || 0),
         visible: true,
-        color: "#145a55",
-        thickness: 1.4,
-        width: 6,
+        color: "#2f5d8a",
+        thickness: 1.2,
+        width: 5,
       },
     };
 
@@ -94,9 +163,18 @@
         xLabel: payload.xLabel,
         yLabel: "Surface tension γ (mN/m)",
         title: "CMC Curve",
+        xScale: "linear",
+        yScale: "linear",
       }),
       { responsive: true, displaylogo: false }
     );
+  }
+
+  function clearPlot(target) {
+    Plotly.react(target, [], baseLayout({ title: "", xLabel: "", yLabel: "", xScale: "linear", yScale: "linear" }), {
+      responsive: true,
+      displaylogo: false,
+    });
   }
 
   async function exportPlotAsPng(target, filename) {
@@ -109,6 +187,8 @@
   }
 
   window.SurfaceLabCharts = {
+    clearPlot,
+    renderAnalysisPlot,
     renderTimeSeriesPlot,
     renderCmcPlot,
     exportPlotAsPng,

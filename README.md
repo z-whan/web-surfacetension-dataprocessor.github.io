@@ -1,6 +1,6 @@
-# Surface Tension Data Tool
+# Surface Tension Analysis Tool
 
-A static web app for local surface-tension plotting and CMC analysis.
+A static web app for local surface-tension plotting, trend extraction, noise analysis, and CMC analysis.
 
 ## Key Points
 
@@ -12,6 +12,16 @@ A static web app for local surface-tension plotting and CMC analysis.
 ## Features
 
 - Time-series plotting
+- Trend extraction:
+  - Moving Average / Rolling Mean
+  - Median Filter
+  - Savitzky-Golay Filter
+- Noise analysis:
+  - Residual Standard Deviation
+  - Adjacent Difference Statistics
+  - Rolling Standard Deviation
+  - Allan Deviation
+  - Power Spectral Density (PSD)
 - CMC batch analysis
 - Local plot export as PNG
 
@@ -54,3 +64,4 @@ http://localhost:8080/web-static-pyodide/
 - Files stay in the browser runtime
 - CSV, XLSX, and XLS are supported
 - Optional Excel packages are loaded only when needed
+- The Time Series tab includes built-in help for trend and noise tools

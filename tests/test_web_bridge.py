@@ -9,7 +9,13 @@ PY_ROOT = ROOT / "py"
 if str(PY_ROOT) not in sys.path:
     sys.path.insert(0, str(PY_ROOT))
 
-from web_bridge import analyze_cmc_files, analyze_plot_file, infer_concentration  # noqa: E402
+from web_bridge import (  # noqa: E402
+    analyze_cmc_files,
+    analyze_plot_file,
+    analyze_plot_noise,
+    extract_plot_trend,
+    infer_concentration,
+)
 
 
 class WebBridgeTests(unittest.TestCase):
@@ -46,6 +52,54 @@ class WebBridgeTests(unittest.TestCase):
             )
             self.assertEqual(payload["summary"]["fileCount"], 1)
             self.assertEqual(payload["points"][0]["y"], 12.5)
+        finally:
+            os.unlink(path)
+
+    def test_extract_plot_trend(self):
+        content = "Time (ms),I.T.(mN/m).1\n0,0\n1,1\n2,2\n3,3\n4,4\n5,5\n"
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8") as handle:
+            handle.write(content)
+            path = handle.name
+
+        try:
+            payload = extract_plot_trend(
+                path,
+                "",
+                "",
+                "1",
+                False,
+                "moving_average",
+                {"windowSize": "3", "windowUnit": "points"},
+            )
+            self.assertEqual(payload["method"]["key"], "moving_average")
+            self.assertEqual(len(payload["series"]), 1)
+            self.assertEqual(len(payload["series"][0]["y"]), 6)
+        finally:
+            os.unlink(path)
+
+    def test_analyze_plot_noise_with_trend(self):
+        content = "Time (ms),I.T.(mN/m).1\n0,1\n1,1.5\n2,2\n3,2.5\n4,3\n5,3.5\n"
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8") as handle:
+            handle.write(content)
+            path = handle.name
+
+        try:
+            payload = analyze_plot_noise(
+                path,
+                "",
+                "",
+                "1",
+                False,
+                "residual_std",
+                {"useTrend": True},
+                {
+                    "methodKey": "moving_average",
+                    "parameters": {"windowSize": "3", "windowUnit": "points"},
+                },
+            )
+            self.assertEqual(payload["method"]["key"], "residual_std")
+            self.assertEqual(payload["summaryColumns"][1], "Residual Std")
+            self.assertEqual(len(payload["summaryRows"]), 1)
         finally:
             os.unlink(path)
 

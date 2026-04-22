@@ -5,10 +5,6 @@
 
   const state = {
     runtimeReady: false,
-    plot: {
-      file: null,
-      payload: null,
-    },
     cmc: {
       rows: [],
       payload: null,
@@ -25,17 +21,6 @@
     tabButtons: Array.from(document.querySelectorAll("[data-tab-button]")),
     panels: Array.from(document.querySelectorAll("[data-tab-panel]")),
 
-    plotInput: document.querySelector("#plot-file"),
-    plotMeta: document.querySelector("[data-plot-meta]"),
-    plotStart: document.querySelector("#plot-start"),
-    plotEnd: document.querySelector("#plot-end"),
-    plotExpRange: document.querySelector("#plot-exp-range"),
-    plotAvgOnly: document.querySelector("#plot-avg-only"),
-    plotAnalyze: document.querySelector("#plot-run"),
-    plotExport: document.querySelector("#plot-export"),
-    plotSummary: document.querySelector("[data-plot-summary]"),
-    plotCanvas: document.querySelector("#plot-canvas"),
-
     cmcInput: document.querySelector("#cmc-files"),
     cmcTableBody: document.querySelector("[data-cmc-table-body]"),
     cmcTimeMin: document.querySelector("#cmc-time-min"),
@@ -48,6 +33,8 @@
     cmcCanvas: document.querySelector("#cmc-canvas"),
     cmcEmpty: document.querySelector("[data-cmc-empty]"),
   };
+
+  let timeSeriesController = null;
 
   function setStatus(message) {
     dom.statusText.textContent = message;
@@ -63,9 +50,7 @@
     dom.runtimeTag.dataset.ready = String(ready);
     dom.actionButtons.forEach((button) => {
       button.dataset.runtimeReady = String(ready);
-      button.title = ready
-        ? ""
-        : "Python runtime is still loading or failed to initialize.";
+      button.title = ready ? "" : "Python runtime is still loading or failed to initialize.";
     });
   }
 
@@ -89,18 +74,6 @@
     });
   }
 
-  function describeFile(file) {
-    if (!file) {
-      return "No file selected yet.";
-    }
-    return (
-      file.name +
-      " · " +
-      (file.size / 1024).toFixed(1) +
-      " KB · ready for local browser processing"
-    );
-  }
-
   function inferConcentrationFromFilename(filename) {
     const lowered = filename.toLowerCase();
     if (["water", "h2o", "blank", "ultrapure"].some((keyword) => lowered.includes(keyword))) {
@@ -109,17 +82,6 @@
 
     const match = filename.match(/(\d+(?:\.\d+)?)(?:\s*(mM|mm|M|uM|µM))?/i);
     return match ? match[1] : "";
-  }
-
-  function renderPlotSummary(payload) {
-    dom.plotSummary.innerHTML = payload
-      ? `
-        <div class="metric-card"><span>Rows</span><strong>${payload.summary.rows}</strong></div>
-        <div class="metric-card"><span>Series</span><strong>${payload.summary.seriesCount}</strong></div>
-        <div class="metric-card"><span>Row Range</span><strong>${payload.rowRange.join(" - ")}</strong></div>
-        <div class="metric-card"><span>Exp Tag</span><strong>${payload.expTag}</strong></div>
-      `
-      : "";
   }
 
   function renderCmcSummary(payload) {
@@ -168,16 +130,6 @@
     });
   }
 
-  function handlePlotSelection() {
-    clearError();
-    const file = dom.plotInput.files[0];
-    state.plot.file = file || null;
-    state.plot.payload = null;
-    dom.plotExport.disabled = true;
-    renderPlotSummary(null);
-    dom.plotMeta.textContent = describeFile(state.plot.file);
-  }
-
   function handleCmcSelection() {
     clearError();
     const files = Array.from(dom.cmcInput.files || []);
@@ -191,47 +143,7 @@
     dom.cmcExport.disabled = true;
     renderCmcTable();
     renderCmcSummary(null);
-  }
-
-  async function runPlot() {
-    if (!state.plot.file) {
-      throw new Error("Please choose a data file first.");
-    }
-
-    const lowerName = state.plot.file.name.toLowerCase();
-    if (lowerName.endsWith(".xlsx")) {
-      setStatus("Preparing XLSX reading support...");
-      await pyodideClient.ensureOptionalPackages(config.OPTIONAL_PYTHON_PACKAGES.xlsx);
-    } else if (lowerName.endsWith(".xls")) {
-      setStatus("Preparing XLS reading support...");
-      await pyodideClient.ensureOptionalPackages(config.OPTIONAL_PYTHON_PACKAGES.xls);
-    }
-
-    const staged = await pyodideClient.stageBrowserFile(state.plot.file, "plot");
-    try {
-      const payload = await pyodideClient.callBridge(
-        "analyze_plot_file",
-        staged.fsPath,
-        dom.plotStart.value,
-        dom.plotEnd.value,
-        dom.plotExpRange.value,
-        dom.plotAvgOnly.checked
-      );
-      state.plot.payload = payload;
-
-      if (!dom.plotExpRange.value && payload.defaultExpRange) {
-        dom.plotExpRange.value = payload.defaultExpRange;
-      }
-
-      await charts.renderTimeSeriesPlot(dom.plotCanvas, payload);
-      renderPlotSummary(payload);
-      dom.plotExport.disabled = false;
-      setStatus(
-        "Rendered " + payload.summary.seriesCount + " series from " + state.plot.file.name + "."
-      );
-    } finally {
-      pyodideClient.removeFsFile(staged.fsPath);
-    }
+    charts.clearPlot(dom.cmcCanvas);
   }
 
   async function runCmc() {
@@ -288,11 +200,7 @@
   function withUiLock(handler) {
     return async () => {
       if (!state.runtimeReady) {
-        showError(
-          location.protocol === "file:"
-            ? "Python runtime is not ready yet. You are opening this app from file://. In-app browsers sometimes block CDN-loaded runtime files, so wait for Runtime to become Ready or use a local static server like http://localhost:8080/web-static-pyodide/."
-            : "Python runtime is still loading or failed to initialize. Please wait for Runtime to become Ready, or click Retry Runtime."
-        );
+        showError("Python runtime is not ready yet. Wait for Runtime to become Ready, then try again.");
         return;
       }
 
@@ -354,26 +262,16 @@
       dom.cmcExport.disabled = true;
       renderCmcTable();
       renderCmcSummary(null);
+      charts.clearPlot(dom.cmcCanvas);
     });
   }
 
   function bindActions() {
-    dom.plotInput.accept = config.ACCEPTED_DATA_EXTENSIONS;
     dom.cmcInput.accept = config.ACCEPTED_DATA_EXTENSIONS;
-
-    dom.plotInput.addEventListener("change", handlePlotSelection);
     dom.cmcInput.addEventListener("change", handleCmcSelection);
-
-    dom.plotAnalyze.addEventListener("click", withUiLock(runPlot));
     dom.cmcAnalyze.addEventListener("click", withUiLock(runCmc));
     dom.runtimeRetry.addEventListener("click", () => {
       retryRuntime();
-    });
-
-    dom.plotExport.addEventListener("click", async () => {
-      if (state.plot.payload) {
-        await charts.exportPlotAsPng(dom.plotCanvas, "plot-" + state.plot.payload.expTag);
-      }
     });
 
     dom.cmcExport.addEventListener("click", async () => {
@@ -383,18 +281,29 @@
     });
   }
 
+  function initializeTimeSeriesModule() {
+    timeSeriesController = window.SurfaceLabTimeSeriesModule.createController({
+      config,
+      charts,
+      pyodideClient,
+      isRuntimeReady: () => state.runtimeReady,
+      setStatus,
+      showError,
+      clearError,
+      normalizeUiError,
+    });
+    timeSeriesController.bind();
+  }
+
   async function boot() {
     bindTabs();
     bindActions();
     bindCmcTableEditing();
+    initializeTimeSeriesModule();
     activateTab("plot");
     setRuntimeReady(false);
-
-    if (location.protocol === "file:") {
-      setStatus("Local file mode detected. This build now avoids module imports, but CDN access is still required for Pyodide and Plotly.");
-    } else {
-      setStatus("Preparing browser-local Python runtime...");
-    }
+    setStatus("Preparing browser-local Python runtime...");
+    charts.clearPlot(dom.cmcCanvas);
 
     await retryRuntime();
   }

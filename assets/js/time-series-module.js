@@ -274,6 +274,15 @@
     return String(value);
   }
 
+  function formatAxisRangeValue(value) {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return "";
+    }
+    return Math.abs(value) >= 1000 || (Math.abs(value) > 0 && Math.abs(value) < 0.01)
+      ? value.toExponential(4)
+      : value.toFixed(4).replace(/\.?0+$/, "");
+  }
+
   function buildHelpHtml() {
     const buildSection = (title, methods) => {
       return `
@@ -317,6 +326,7 @@
         trendRequest: null,
         noisePayload: null,
         showRaw: true,
+        manualYRange: null,
       };
 
       this.dom = {
@@ -332,6 +342,8 @@
         plotCanvas: document.querySelector("#plot-canvas"),
         plotYSpan: document.querySelector("#plot-y-span"),
         plotYSpanValue: document.querySelector("[data-plot-y-span-value]"),
+        plotYMin: document.querySelector("#plot-y-min"),
+        plotYMax: document.querySelector("#plot-y-max"),
         trendMethod: document.querySelector("#plot-trend-method"),
         trendParams: document.querySelector("#plot-trend-params"),
         trendApply: document.querySelector("#plot-trend-apply"),
@@ -372,6 +384,12 @@
       this.dom.showRawToggle.addEventListener("change", () => this.handleShowRawToggle());
       if (this.dom.plotYSpan) {
         this.dom.plotYSpan.addEventListener("input", () => this.handleYSpanChange());
+      }
+      if (this.dom.plotYMin) {
+        this.dom.plotYMin.addEventListener("change", () => this.handleYRangeInputChange());
+      }
+      if (this.dom.plotYMax) {
+        this.dom.plotYMax.addEventListener("change", () => this.handleYRangeInputChange());
       }
       this.dom.plotAnalyze.addEventListener("click", () => {
         this.withRuntime(() => this.runPlot())();
@@ -415,12 +433,14 @@
       this.state.trendRequest = null;
       this.state.noisePayload = null;
       this.state.showRaw = true;
+      this.state.manualYRange = null;
       this.dom.showRawToggle.checked = true;
       this.dom.plotMeta.textContent = this.describeFile(this.state.file);
       this.dom.plotExport.disabled = true;
       this.renderPlotSummary(null);
       this.renderTrendStatus("No trend has been applied yet.");
       this.renderNoiseOutput(null);
+      this.resetYRangeControls();
       this.charts.clearPlot(this.dom.plotCanvas);
       this.charts.clearPlot(this.dom.noiseCanvas);
     }
@@ -433,10 +453,48 @@
     }
 
     handleYSpanChange() {
+      this.clearError();
+      this.state.manualYRange = null;
       this.updateYSpanLabel();
       if (this.state.rawPayload) {
         this.renderCurrentPlot();
       }
+    }
+
+    async handleYRangeInputChange() {
+      if (!this.state.rawPayload) {
+        return;
+      }
+
+      const minText = this.dom.plotYMin ? this.dom.plotYMin.value.trim() : "";
+      const maxText = this.dom.plotYMax ? this.dom.plotYMax.value.trim() : "";
+
+      if (!minText && !maxText) {
+        this.clearError();
+        this.state.manualYRange = null;
+        await this.renderCurrentPlot();
+        return;
+      }
+
+      if (!minText || !maxText) {
+        return;
+      }
+
+      const yMin = Number(minText);
+      const yMax = Number(maxText);
+      if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) {
+        this.showError("Y-axis limits must be numeric values.");
+        return;
+      }
+      if (yMax <= yMin) {
+        this.showError("The upper y-axis limit must be greater than the lower limit.");
+        return;
+      }
+
+      this.clearError();
+      this.state.manualYRange = [yMin, yMax];
+      this.syncYRangeInputs(this.state.manualYRange);
+      await this.renderCurrentPlot();
     }
 
     describeFile(file) {
@@ -470,6 +528,46 @@
         return;
       }
       this.dom.plotYSpanValue.textContent = `${this.currentYSpanPercent()}%`;
+    }
+
+    currentAutoYRange() {
+      if (!this.state.rawPayload) {
+        return null;
+      }
+
+      return this.charts.resolveTimeSeriesYRange(this.state.rawPayload, {
+        trendPayload: this.state.trendPayload,
+        ySpanPercent: this.currentYSpanPercent(),
+      });
+    }
+
+    syncYRangeInputs(range) {
+      if (!this.dom.plotYMin || !this.dom.plotYMax) {
+        return;
+      }
+
+      if (!range) {
+        this.dom.plotYMin.value = "";
+        this.dom.plotYMax.value = "";
+        return;
+      }
+
+      this.dom.plotYMin.value = formatAxisRangeValue(range[0]);
+      this.dom.plotYMax.value = formatAxisRangeValue(range[1]);
+    }
+
+    setYRangeInputsEnabled(enabled) {
+      if (this.dom.plotYMin) {
+        this.dom.plotYMin.disabled = !enabled;
+      }
+      if (this.dom.plotYMax) {
+        this.dom.plotYMax.disabled = !enabled;
+      }
+    }
+
+    resetYRangeControls() {
+      this.setYRangeInputsEnabled(false);
+      this.syncYRangeInputs(null);
     }
 
     async ensureFileDependencies() {
@@ -620,14 +718,24 @@
 
     async renderCurrentPlot() {
       if (!this.state.rawPayload) {
+        this.resetYRangeControls();
         this.charts.clearPlot(this.dom.plotCanvas);
         return;
+      }
+
+      const autoRange = this.currentAutoYRange();
+      this.setYRangeInputsEnabled(true);
+      if (!this.state.manualYRange) {
+        this.syncYRangeInputs(autoRange);
       }
 
       await this.charts.renderTimeSeriesPlot(this.dom.plotCanvas, this.state.rawPayload, {
         trendPayload: this.state.trendPayload,
         showRaw: this.state.showRaw,
         ySpanPercent: this.currentYSpanPercent(),
+        // The slider remains an automatic span tool. Manual input boxes can
+        // override the plotted range without forcing the slider to re-sync.
+        explicitYRange: this.state.manualYRange,
       });
     }
 

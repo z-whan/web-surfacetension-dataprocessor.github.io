@@ -8,14 +8,14 @@
       name="description"
       content="A static Pyodide-powered browser app for local surface-tension plotting, trend extraction, noise analysis, and CMC analysis."
     />
-    <link rel="stylesheet" href="./assets/css/main.css?v=20260422d" />
+    <link rel="stylesheet" href="./assets/css/main.css?v=20260422e" />
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
-    <script src="./assets/js/config.js?v=20260422d" defer></script>
-    <script src="./assets/js/python-sources.js?v=20260422d" defer></script>
-    <script src="./assets/js/charts.js?v=20260422d" defer></script>
-    <script src="./assets/js/pyodide-client.js?v=20260422d" defer></script>
-    <script src="./assets/js/time-series-module.js?v=20260422d" defer></script>
-    <script src="./assets/js/app.js?v=20260422d" defer></script>
+    <script src="./assets/js/config.js?v=20260422e" defer></script>
+    <script src="./assets/js/python-sources.js?v=20260422e" defer></script>
+    <script src="./assets/js/charts.js?v=20260422e" defer></script>
+    <script src="./assets/js/pyodide-client.js?v=20260422e" defer></script>
+    <script src="./assets/js/time-series-module.js?v=20260422e" defer></script>
+    <script src="./assets/js/app.js?v=20260422e" defer></script>
   </head>
   <body>
     <main class="app-shell">
@@ -179,8 +179,32 @@
                 </div>
                 <div class="slider-field">
                   <label for="plot-y-span">Y-axis Span</label>
-                  <input id="plot-y-span" type="range" min="40" max="300" step="5" value="100" />
-                  <span class="slider-value" data-plot-y-span-value>100%</span>
+                  <input id="plot-y-span" type="range" min="40" max="400" step="5" value="100" />
+                  <div class="slider-field-meta">
+                    <span class="slider-value" data-plot-y-span-value>100%</span>
+                    <div class="range-input-row">
+                      <input
+                        id="plot-y-min"
+                        type="text"
+                        inputmode="decimal"
+                        placeholder="min"
+                        aria-label="Y-axis lower bound"
+                        disabled
+                      />
+                      <span class="range-separator">to</span>
+                      <input
+                        id="plot-y-max"
+                        type="text"
+                        inputmode="decimal"
+                        placeholder="max"
+                        aria-label="Y-axis upper bound"
+                        disabled
+                      />
+                    </div>
+                  </div>
+                  <p class="field-hint">
+                    Slider updates the default range. Edit the boxes for a custom range, or clear both to return to slider mode.
+                  </p>
                 </div>
               </div>
               <div class="metric-grid" data-plot-summary></div>

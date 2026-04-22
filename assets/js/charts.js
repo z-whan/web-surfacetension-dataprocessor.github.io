@@ -83,6 +83,19 @@
     return [midpoint - halfSpan, midpoint + halfSpan];
   }
 
+  function resolveTimeSeriesYRange(rawPayload, options) {
+    const opts = options || {};
+    if (Array.isArray(opts.explicitYRange) && opts.explicitYRange.length === 2) {
+      return opts.explicitYRange;
+    }
+
+    const trendPayload = opts.trendPayload || null;
+    const rangeSeries = trendPayload
+      ? rawPayload.series.concat(trendPayload.series)
+      : rawPayload.series;
+    return computeYRange(rangeSeries, opts.ySpanPercent || 100);
+  }
+
   function buildRawTrace(series, index) {
     return {
       type: "scatter",
@@ -133,10 +146,7 @@
       });
     }
 
-    const rangeSeries = trendPayload
-      ? rawPayload.series.concat(trendPayload.series)
-      : rawPayload.series;
-    const yRange = computeYRange(rangeSeries, opts.ySpanPercent || 100);
+    const yRange = resolveTimeSeriesYRange(rawPayload, opts);
 
     await Plotly.react(
       target,
@@ -240,5 +250,6 @@
     renderTimeSeriesPlot,
     renderCmcPlot,
     exportPlotAsPng,
+    resolveTimeSeriesYRange,
   };
 })();

@@ -22,6 +22,13 @@ NOISE_METHOD_LABELS = {
     "psd": "Power Spectral Density (PSD)",
 }
 
+PSD_PROCESSING_LABELS = {
+    "none": "None",
+    "remove_mean_only": "Remove mean only",
+    "linear_detrend": "Linear detrend",
+    "subtract_extracted_trend": "Subtract extracted trend",
+}
+
 
 @dataclass
 class TrendAnalysisResult:
@@ -495,6 +502,53 @@ def _resolve_sampling_interval(
     return _estimate_sampling_interval(x_values)
 
 
+def _interpolate_numeric_series(values: pd.Series) -> np.ndarray:
+    return (
+        pd.to_numeric(values, errors="coerce")
+        .interpolate(limit_direction="both")
+        .to_numpy(dtype=float)
+    )
+
+
+def _linear_detrend(signal: np.ndarray) -> np.ndarray:
+    sample_index = np.arange(signal.size, dtype=float)
+    slope, intercept = np.polyfit(sample_index, signal, deg=1)
+    return signal - (slope * sample_index + intercept)
+
+
+def _prepare_psd_signal(
+    raw_values: pd.Series,
+    *,
+    trend_values: pd.Series | None,
+    processing_mode: str,
+    series_name: str,
+) -> np.ndarray:
+    filled, _ = _prepare_filter_input(raw_values, series_name)
+
+    if processing_mode == "none":
+        return filled
+    if processing_mode == "remove_mean_only":
+        return filled - np.mean(filled)
+    if processing_mode == "linear_detrend":
+        # Remove the best-fit line so the PSD reflects oscillatory content
+        # rather than slow monotonic drift.
+        return _linear_detrend(filled)
+    if processing_mode == "subtract_extracted_trend":
+        if trend_values is None:
+            raise DataProcessingError(
+                "PSD with 'Subtract extracted trend' requires an extracted trend. Apply a trend first."
+            )
+
+        trend_filled = _interpolate_numeric_series(trend_values)
+        if not np.isfinite(trend_filled).any():
+            raise DataProcessingError(
+                f"Trend for series '{series_name}' does not contain usable values."
+            )
+        return filled - trend_filled
+
+    raise DataProcessingError(f"Unsupported PSD processing mode '{processing_mode}'.")
+
+
 def _compute_allan_deviation(
     x_values: pd.Series,
     y_values: pd.DataFrame,
@@ -581,18 +635,29 @@ def _compute_psd(
     y_values: pd.DataFrame,
     *,
     parameters: Mapping[str, Any],
+    trend_values: pd.DataFrame | None,
 ) -> NoiseAnalysisResult:
     dt = _resolve_sampling_interval(x_values, parameters)
-    remove_mean = _parse_bool(parameters, "removeMean", default=True)
+    processing_mode = _parse_choice(
+        parameters,
+        "processingMode",
+        set(PSD_PROCESSING_LABELS.keys()),
+        "remove_mean_only",
+    )
+    processing_label = PSD_PROCESSING_LABELS[processing_mode]
     rows: list[dict[str, Any]] = []
     plot_series: list[dict[str, Any]] = []
 
     for col in y_values.columns:
-        filled, _ = _prepare_filter_input(y_values[col], str(col))
-        if filled.size < 4:
+        signal = _prepare_psd_signal(
+            y_values[col],
+            trend_values=None if trend_values is None else trend_values[col],
+            processing_mode=processing_mode,
+            series_name=str(col),
+        )
+        if signal.size < 4:
             raise DataProcessingError(f"Series '{col}' is too short for PSD.")
 
-        signal = filled - np.mean(filled) if remove_mean else filled
         freq = np.fft.rfftfreq(signal.size, d=dt)
         fft = np.fft.rfft(signal)
         psd = (np.abs(fft) ** 2) * dt / signal.size
@@ -608,6 +673,7 @@ def _compute_psd(
         rows.append(
             {
                 "Series": str(col),
+                "Processing": processing_label,
                 "Dominant Freq": dominant_freq,
                 "Dominant Period": float(1.0 / dominant_freq) if dominant_freq > 0 else None,
                 "Peak PSD": float(psd[dominant_idx]),
@@ -618,9 +684,9 @@ def _compute_psd(
     return NoiseAnalysisResult(
         method_key="psd",
         method_label=NOISE_METHOD_LABELS["psd"],
-        parameters={"samplingInterval": dt, "removeMean": remove_mean},
-        summary_text="Power spectral density computed from the selected time series.",
-        summary_columns=["Series", "Dominant Freq", "Dominant Period", "Peak PSD"],
+        parameters={"samplingInterval": dt, "processingMode": processing_mode},
+        summary_text=f"Power spectral density computed using {processing_label.lower()} preprocessing.",
+        summary_columns=["Series", "Processing", "Dominant Freq", "Dominant Period", "Peak PSD"],
         summary_rows=rows,
         plot_payload={
             "title": "Power Spectral Density",
@@ -654,6 +720,11 @@ def analyze_noise(
     if method_key == "allan_deviation":
         return _compute_allan_deviation(x_values, y_values, parameters=parameters)
     if method_key == "psd":
-        return _compute_psd(x_values, y_values, parameters=parameters)
+        return _compute_psd(
+            x_values,
+            y_values,
+            parameters=parameters,
+            trend_values=trend_values,
+        )
 
     raise DataProcessingError(f"Unsupported noise analysis method '{method_key}'.")

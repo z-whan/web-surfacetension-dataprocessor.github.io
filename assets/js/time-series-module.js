@@ -148,17 +148,23 @@
       label: "Power Spectral Density (PSD)",
       params: [
         {
+          key: "processingMode",
+          label: "Processing",
+          type: "select",
+          defaultValue: "remove_mean_only",
+          options: [
+            { value: "none", label: "None" },
+            { value: "remove_mean_only", label: "Remove mean only" },
+            { value: "linear_detrend", label: "Linear detrend" },
+            { value: "subtract_extracted_trend", label: "Subtract extracted trend" },
+          ],
+        },
+        {
           key: "samplingInterval",
           label: "Sampling Interval",
           type: "text",
           defaultValue: "",
           placeholder: "Auto from time axis",
-        },
-        {
-          key: "removeMean",
-          label: "Remove mean before PSD",
-          type: "checkbox",
-          defaultValue: true,
         },
       ],
       help: {
@@ -561,6 +567,13 @@
 
       if (methodKey === "residual_std" && parameters.useTrend && !this.state.trendRequest) {
         throw new Error("Apply a trend first or disable trend-based residual analysis.");
+      }
+      if (
+        methodKey === "psd" &&
+        parameters.processingMode === "subtract_extracted_trend" &&
+        !this.state.trendRequest
+      ) {
+        throw new Error("Apply a trend first before using PSD with 'Subtract extracted trend'.");
       }
 
       const args = this.currentSelectionArgs();

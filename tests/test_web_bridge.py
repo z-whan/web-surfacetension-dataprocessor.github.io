@@ -103,6 +103,33 @@ class WebBridgeTests(unittest.TestCase):
         finally:
             os.unlink(path)
 
+    def test_analyze_plot_noise_psd_with_subtracted_trend(self):
+        content = "Time (ms),I.T.(mN/m).1\n0,1.0\n1,1.2\n2,1.5\n3,1.7\n4,1.8\n5,2.0\n6,2.2\n7,2.4\n"
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8") as handle:
+            handle.write(content)
+            path = handle.name
+
+        try:
+            payload = analyze_plot_noise(
+                path,
+                "",
+                "",
+                "1",
+                False,
+                "psd",
+                {"processingMode": "subtract_extracted_trend"},
+                {
+                    "methodKey": "moving_average",
+                    "parameters": {"windowSize": "3", "windowUnit": "points"},
+                },
+            )
+            self.assertEqual(payload["method"]["key"], "psd")
+            self.assertEqual(payload["method"]["parameters"]["processingMode"], "subtract_extracted_trend")
+            self.assertEqual(payload["summaryColumns"][1], "Processing")
+            self.assertEqual(payload["summaryRows"][0]["Processing"], "Subtract extracted trend")
+        finally:
+            os.unlink(path)
+
 
 if __name__ == "__main__":
     unittest.main()

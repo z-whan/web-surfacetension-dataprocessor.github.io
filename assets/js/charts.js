@@ -114,7 +114,6 @@
     const trendPayload = opts.trendPayload || null;
     const showRaw = typeof opts.showRaw === "boolean" ? opts.showRaw : true;
     const traces = [];
-    const visibleSeries = [];
 
     if (!trendPayload || showRaw) {
       rawPayload.series.forEach((series, index) => {
@@ -125,18 +124,19 @@
           trace.name = series.name + " raw";
         }
         traces.push(trace);
-        visibleSeries.push(series);
       });
     }
 
     if (trendPayload) {
       trendPayload.series.forEach((series, index) => {
         traces.push(buildTrendTrace(series, index));
-        visibleSeries.push(series);
       });
     }
 
-    const yRange = computeYRange(visibleSeries, opts.ySpanPercent || 100);
+    const rangeSeries = trendPayload
+      ? rawPayload.series.concat(trendPayload.series)
+      : rawPayload.series;
+    const yRange = computeYRange(rangeSeries, opts.ySpanPercent || 100);
 
     await Plotly.react(
       target,

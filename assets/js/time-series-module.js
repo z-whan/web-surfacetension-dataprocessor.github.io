@@ -336,6 +336,7 @@
         plotEnd: document.querySelector("#plot-end"),
         plotExpRange: document.querySelector("#plot-exp-range"),
         plotAvgOnly: document.querySelector("#plot-avg-only"),
+        plotAvgShowOriginal: document.querySelector("#plot-avg-show-original"),
         plotAnalyze: document.querySelector("#plot-run"),
         plotExport: document.querySelector("#plot-export"),
         plotSummary: document.querySelector("[data-plot-summary]"),
@@ -373,8 +374,10 @@
       this.renderTrendStatus("No trend has been applied yet.");
       this.renderNoiseOutput(null);
       this.updateYSpanLabel();
+      this.syncAvgOverlayOption();
 
       this.dom.plotInput.addEventListener("change", () => this.handleFileSelection());
+      this.dom.plotAvgOnly.addEventListener("change", () => this.handleAvgOnlyChange());
       this.dom.trendMethod.addEventListener("change", () => {
         renderParameterFields(this.dom.trendParams, TREND_METHODS[this.dom.trendMethod.value]);
       });
@@ -445,6 +448,10 @@
       this.charts.clearPlot(this.dom.noiseCanvas);
     }
 
+    handleAvgOnlyChange() {
+      this.syncAvgOverlayOption();
+    }
+
     handleShowRawToggle() {
       this.state.showRaw = Boolean(this.dom.showRawToggle.checked);
       if (this.state.rawPayload) {
@@ -510,7 +517,24 @@
         endText: this.dom.plotEnd.value,
         expRangeText: this.dom.plotExpRange.value,
         avgOnly: this.dom.plotAvgOnly.checked,
+        showOriginalWithAvg: Boolean(
+          this.dom.plotAvgOnly.checked &&
+            this.dom.plotAvgShowOriginal &&
+            this.dom.plotAvgShowOriginal.checked
+        ),
       };
+    }
+
+    syncAvgOverlayOption() {
+      if (!this.dom.plotAvgShowOriginal) {
+        return;
+      }
+
+      const enabled = Boolean(this.dom.plotAvgOnly.checked);
+      this.dom.plotAvgShowOriginal.disabled = !enabled;
+      if (!enabled) {
+        this.dom.plotAvgShowOriginal.checked = false;
+      }
     }
 
     ensureFileSelected() {
@@ -594,7 +618,8 @@
           args.startText,
           args.endText,
           args.expRangeText,
-          args.avgOnly
+          args.avgOnly,
+          args.showOriginalWithAvg
         );
         this.state.rawPayload = payload;
         if (!this.dom.plotExpRange.value && payload.defaultExpRange) {
@@ -639,7 +664,8 @@
           args.expRangeText,
           args.avgOnly,
           methodKey,
-          parameters
+          parameters,
+          args.showOriginalWithAvg
         );
 
         this.state.rawPayload = rawPayload;
@@ -687,7 +713,8 @@
           args.avgOnly,
           methodKey,
           parameters,
-          this.state.trendRequest
+          this.state.trendRequest,
+          args.showOriginalWithAvg
         );
 
         this.state.rawPayload = rawPayload;

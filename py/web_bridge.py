@@ -55,6 +55,7 @@ def _load_plot_dataset(
     end_text: str,
     exp_range_text: str,
     avg_only: bool,
+    show_original_with_avg: bool = False,
 ):
     df = load_plot_dataframe(source_path)
     return prepare_plot_dataset(
@@ -63,6 +64,7 @@ def _load_plot_dataset(
         end_text=end_text,
         exp_range_text=exp_range_text,
         avg_only=avg_only,
+        show_original_with_avg=show_original_with_avg,
     )
 
 
@@ -89,10 +91,18 @@ def analyze_plot_file(
     end_text: str,
     exp_range_text: str,
     avg_only: bool,
+    show_original_with_avg: bool = False,
 ) -> dict[str, Any]:
-    dataset = _load_plot_dataset(source_path, start_text, end_text, exp_range_text, avg_only)
+    dataset = _load_plot_dataset(
+        source_path,
+        start_text,
+        end_text,
+        exp_range_text,
+        avg_only,
+        show_original_with_avg,
+    )
 
-    y_values = dataset.y_values.to_numpy(dtype=float)
+    y_values = dataset.plot_values.to_numpy(dtype=float)
     finite_values = y_values[np.isfinite(y_values)]
     y_min = float(finite_values.min()) if finite_values.size else None
     y_max = float(finite_values.max()) if finite_values.size else None
@@ -103,10 +113,10 @@ def analyze_plot_file(
         "expTag": dataset.exp_tag,
         "rowRange": list(dataset.row_range),
         "defaultExpRange": dataset.default_exp_range,
-        "series": _series_payload(dataset.x_values, dataset.y_values),
+        "series": _series_payload(dataset.x_values, dataset.plot_values),
         "summary": {
             "rows": int(len(dataset.x_values)),
-            "seriesCount": int(len(dataset.y_values.columns)),
+            "seriesCount": int(len(dataset.plot_values.columns)),
             "yMin": _finite_or_none(y_min),
             "yMax": _finite_or_none(y_max),
         },
@@ -121,8 +131,16 @@ def extract_plot_trend(
     avg_only: bool,
     method_key: str,
     parameters: dict[str, Any],
+    show_original_with_avg: bool = False,
 ) -> dict[str, Any]:
-    dataset = _load_plot_dataset(source_path, start_text, end_text, exp_range_text, avg_only)
+    dataset = _load_plot_dataset(
+        source_path,
+        start_text,
+        end_text,
+        exp_range_text,
+        avg_only,
+        show_original_with_avg,
+    )
     result = extract_trend_analysis(
         x_label=dataset.x_label,
         x_values=dataset.x_values,
@@ -150,8 +168,16 @@ def analyze_plot_noise(
     method_key: str,
     parameters: dict[str, Any],
     trend_request: dict[str, Any] | None = None,
+    show_original_with_avg: bool = False,
 ) -> dict[str, Any]:
-    dataset = _load_plot_dataset(source_path, start_text, end_text, exp_range_text, avg_only)
+    dataset = _load_plot_dataset(
+        source_path,
+        start_text,
+        end_text,
+        exp_range_text,
+        avg_only,
+        show_original_with_avg,
+    )
     trend_values = None
 
     if trend_request is not None:

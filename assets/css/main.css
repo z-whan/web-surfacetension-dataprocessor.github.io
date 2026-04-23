@@ -183,6 +183,12 @@ select {
   gap: 12px;
 }
 
+.option-stack {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
 .field label {
   display: block;
   margin-bottom: 6px;

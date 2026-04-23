@@ -13,6 +13,7 @@ class PlotDataset:
     x_label: str
     x_values: pd.Series
     y_values: pd.DataFrame
+    plot_values: pd.DataFrame
     exp_tag: str
     row_range: tuple[int, int]
     default_exp_range: str | None = None
@@ -150,12 +151,12 @@ def _find_longest_true_run(mask: np.ndarray) -> tuple[int, int] | None:
     return best
 
 
-def _resolve_row_range(
+def _resolve_row_bounds(
     x_values: pd.Series,
     y_values: pd.DataFrame,
     start_text: str,
     end_text: str,
-) -> tuple[pd.Series, pd.DataFrame, tuple[int, int]]:
+) -> tuple[int, int, tuple[int, int]]:
     start = start_text.strip()
     end = end_text.strip()
 
@@ -175,7 +176,7 @@ def _resolve_row_range(
 
         s, e_inclusive = run
         e = e_inclusive + 1
-        return x_values.iloc[s:e], y_values.iloc[s:e], (s + 1, e)
+        return s, e, (s + 1, e)
 
     try:
         s = int(start) - 1 if start else 0
@@ -190,7 +191,7 @@ def _resolve_row_range(
     if s >= e:
         raise DataProcessingError("Row range is empty after applying boundaries.")
 
-    return x_values.iloc[s:e], y_values.iloc[s:e], (s + 1, e)
+    return s, e, (s + 1, e)
 
 
 def prepare_plot_dataset(
@@ -199,6 +200,7 @@ def prepare_plot_dataset(
     end_text: str,
     exp_range_text: str,
     avg_only: bool,
+    show_original_with_avg: bool = False,
 ) -> PlotDataset:
     time_col = find_time_column(df.columns)
     x_raw = pd.to_numeric(df[time_col], errors="coerce")
@@ -211,12 +213,45 @@ def prepare_plot_dataset(
     default_range: str | None = None
 
     if avg_only:
-        if avg_col is None:
-            raise DataProcessingError(
-                "Avg column not found (looked for names like 'Avg', 'Average', 'Mean', '平均')."
+        if exp_range_text.strip():
+            if n_experiments == 0:
+                raise DataProcessingError("No I.T.(mN/m) experiment columns found.")
+
+            selected_indexes = parse_experiment_range(exp_range_text, n_experiments)
+            resolved_range_text = exp_range_text.strip()
+            selected_cols = [ordered_it_cols[idx - 1] for idx in selected_indexes]
+            selected_numeric = df[selected_cols].apply(
+                lambda series: pd.to_numeric(series, errors="coerce")
             )
-        selected_cols = [avg_col]
-        exp_tag = "avg"
+            avg_label = f"Avg ({resolved_range_text})"
+            avg_numeric = pd.DataFrame({avg_label: selected_numeric.mean(axis=1, skipna=True)})
+            y_numeric = avg_numeric
+            plot_numeric = (
+                pd.concat([selected_numeric, avg_numeric], axis=1)
+                if show_original_with_avg
+                else avg_numeric
+            )
+            exp_tag = f"avg({resolved_range_text})"
+        else:
+            if avg_col is None:
+                raise DataProcessingError(
+                    "Avg column not found (looked for names like 'Avg', 'Average', 'Mean', '平均')."
+                )
+
+            avg_numeric = (
+                df[[avg_col]]
+                .apply(lambda series: pd.to_numeric(series, errors="coerce"))
+                .rename(columns={avg_col: "Avg"})
+            )
+            y_numeric = avg_numeric
+            if show_original_with_avg and n_experiments > 0:
+                selected_numeric = df[ordered_it_cols].apply(
+                    lambda series: pd.to_numeric(series, errors="coerce")
+                )
+                plot_numeric = pd.concat([selected_numeric, avg_numeric], axis=1)
+            else:
+                plot_numeric = avg_numeric
+            exp_tag = "avg"
     else:
         if n_experiments == 0:
             raise DataProcessingError(
@@ -232,10 +267,14 @@ def prepare_plot_dataset(
             resolved_range_text = exp_range_text.strip()
 
         selected_cols = [ordered_it_cols[idx - 1] for idx in selected_indexes]
+        y_numeric = df[selected_cols].apply(lambda series: pd.to_numeric(series, errors="coerce"))
+        plot_numeric = y_numeric
         exp_tag = f"exp{resolved_range_text}"
 
-    y_numeric = df[selected_cols].apply(lambda series: pd.to_numeric(series, errors="coerce"))
-    x_plot, y_plot, row_range = _resolve_row_range(x_raw, y_numeric, start_text, end_text)
+    s, e, row_range = _resolve_row_bounds(x_raw, y_numeric, start_text, end_text)
+    x_plot = x_raw.iloc[s:e]
+    y_plot = y_numeric.iloc[s:e]
+    plot_values = plot_numeric.iloc[s:e]
 
     if x_plot.empty:
         raise DataProcessingError("Empty selection after range processing.")
@@ -244,6 +283,7 @@ def prepare_plot_dataset(
         x_label=x_label,
         x_values=x_plot,
         y_values=y_plot,
+        plot_values=plot_values,
         exp_tag=exp_tag,
         row_range=row_range,
         default_exp_range=default_range,

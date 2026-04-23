@@ -130,6 +130,44 @@ class WebBridgeTests(unittest.TestCase):
         finally:
             os.unlink(path)
 
+    def test_analyze_plot_file_avg_only_uses_selected_experiment_range(self):
+        content = (
+            "Time (ms),I.T.(mN/m).1,I.T.(mN/m).2,I.T.(mN/m).3,Avg\n"
+            "0,10,20,100,999\n"
+            "1,12,22,102,999\n"
+            "2,14,24,104,999\n"
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8") as handle:
+            handle.write(content)
+            path = handle.name
+
+        try:
+            payload = analyze_plot_file(path, "", "", "1-2", True)
+            self.assertEqual(payload["summary"]["seriesCount"], 1)
+            self.assertEqual(payload["series"][0]["name"], "Avg (1-2)")
+            self.assertEqual(payload["series"][0]["y"], [15.0, 17.0, 19.0])
+        finally:
+            os.unlink(path)
+
+    def test_analyze_plot_file_avg_only_can_show_original_series(self):
+        content = (
+            "Time (ms),I.T.(mN/m).1,I.T.(mN/m).2,I.T.(mN/m).3,Avg\n"
+            "0,10,20,100,999\n"
+            "1,12,22,102,999\n"
+            "2,14,24,104,999\n"
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8") as handle:
+            handle.write(content)
+            path = handle.name
+
+        try:
+            payload = analyze_plot_file(path, "", "", "1-2", True, True)
+            self.assertEqual(payload["summary"]["seriesCount"], 3)
+            self.assertEqual([series["name"] for series in payload["series"]], ["I.T.(mN/m).1", "I.T.(mN/m).2", "Avg (1-2)"])
+            self.assertEqual(payload["series"][-1]["y"], [15.0, 17.0, 19.0])
+        finally:
+            os.unlink(path)
+
 
 if __name__ == "__main__":
     unittest.main()

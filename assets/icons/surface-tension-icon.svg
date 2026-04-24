@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Surface Tension Analysis Tool icon">
+  <rect width="1024" height="1024" fill="#fff"/>
+  <path
+    d="M512 45C470 195 363 282 268 382 151 506 126 670 197 812c75 150 232 235 403 207 170-28 300-168 315-339 10-115-30-209-111-292"
+    fill="none"
+    stroke="#5bbcf3"
+    stroke-linecap="butt"
+    stroke-linejoin="round"
+    stroke-width="74"
+  />
+  <path
+    d="M512 45C535 154 590 230 672 318c32 34 66 70 96 113h-92c-74-93-130-166-164-386Z"
+    fill="#5bbcf3"
+  />
+  <path
+    d="M448 407c117-39 279-37 476-37l-33 70H737c-75-36-166-45-289-33Z"
+    fill="#5bbcf3"
+  />
+  <g fill="none" stroke="#f0122d" stroke-linecap="round" stroke-width="28">
+    <path d="M202 599l87 50"/>
+    <path d="M822 599l-87 50"/>
+    <path d="M512 828v82"/>
+  </g>
+  <g fill="#5bbcf3">
+    <circle cx="324" cy="640" r="43"/>
+    <circle cx="700" cy="640" r="43"/>
+    <circle cx="512" cy="800" r="43"/>
+  </g>
+</svg>

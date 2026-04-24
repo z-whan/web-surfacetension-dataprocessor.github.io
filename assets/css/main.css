@@ -380,6 +380,10 @@ select {
   background: #f7f7f7;
 }
 
+.compact-button {
+  padding: 5px 9px;
+}
+
 .primary-button:disabled,
 .secondary-button:disabled,
 .ghost-button:disabled {

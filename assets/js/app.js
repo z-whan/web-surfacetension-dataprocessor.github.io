@@ -35,6 +35,7 @@
   };
 
   let timeSeriesController = null;
+  let compareController = null;
 
   function setStatus(message) {
     dom.statusText.textContent = message;
@@ -291,14 +292,26 @@
       showError,
       clearError,
       normalizeUiError,
+      onMarkForCompare: (curves) => compareController.addCurves(curves),
     });
     timeSeriesController.bind();
+  }
+
+  function initializeCompareModule() {
+    compareController = window.SurfaceLabCompareModule.createController({
+      charts,
+      setStatus,
+      showError,
+      clearError,
+    });
+    compareController.bind();
   }
 
   async function boot() {
     bindTabs();
     bindActions();
     bindCmcTableEditing();
+    initializeCompareModule();
     initializeTimeSeriesModule();
     activateTab("plot");
     setRuntimeReady(false);

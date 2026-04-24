@@ -83,17 +83,21 @@
     return [midpoint - halfSpan, midpoint + halfSpan];
   }
 
-  function resolveTimeSeriesYRange(rawPayload, options) {
+  function resolveSeriesYRange(seriesList, options) {
     const opts = options || {};
     if (Array.isArray(opts.explicitYRange) && opts.explicitYRange.length === 2) {
       return opts.explicitYRange;
     }
+    return computeYRange(seriesList, opts.ySpanPercent || 100);
+  }
 
+  function resolveTimeSeriesYRange(rawPayload, options) {
+    const opts = options || {};
     const trendPayload = opts.trendPayload || null;
     const rangeSeries = trendPayload
       ? rawPayload.series.concat(trendPayload.series)
       : rawPayload.series;
-    return computeYRange(rangeSeries, opts.ySpanPercent || 100);
+    return resolveSeriesYRange(rangeSeries, opts);
   }
 
   function buildRawTrace(series, index) {
@@ -187,6 +191,42 @@
     );
   }
 
+  async function renderComparePlot(target, curves, options) {
+    const opts = options || {};
+    const traces = curves.map((curve, index) => ({
+      type: "scatter",
+      mode: "lines",
+      name: "#" + curve.displayIndex,
+      x: curve.x,
+      y: curve.y,
+      line: {
+        width: 2,
+        color: PALETTE[index % PALETTE.length],
+        dash: curve.dataType === "trend" ? "dash" : "solid",
+      },
+      hovertemplate:
+        "#" +
+        curve.displayIndex +
+        "<br>" +
+        curve.selection +
+        "<br>%{x}, %{y:.4f}<extra></extra>",
+    }));
+
+    await Plotly.react(
+      target,
+      traces,
+      baseLayout({
+        xLabel: opts.xLabel || "Time",
+        yLabel: opts.yLabel || "I.T. (mN/m)",
+        title: "Compare",
+        xScale: "linear",
+        yScale: "linear",
+        yRange: resolveSeriesYRange(curves, opts),
+      }),
+      { responsive: true, displaylogo: false }
+    );
+  }
+
   async function renderCmcPlot(target, payload) {
     const trace = {
       type: "scatter",
@@ -247,9 +287,11 @@
   window.SurfaceLabCharts = {
     clearPlot,
     renderAnalysisPlot,
+    renderComparePlot,
     renderTimeSeriesPlot,
     renderCmcPlot,
     exportPlotAsPng,
+    resolveSeriesYRange,
     resolveTimeSeriesYRange,
   };
 })();

@@ -8,14 +8,15 @@
       name="description"
       content="A static Pyodide-powered browser app for local surface-tension plotting, trend extraction, noise analysis, and CMC analysis."
     />
-    <link rel="stylesheet" href="./assets/css/main.css?v=20260423a" />
+    <link rel="stylesheet" href="./assets/css/main.css?v=20260424a" />
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
-    <script src="./assets/js/config.js?v=20260423a" defer></script>
-    <script src="./assets/js/python-sources.js?v=20260423a" defer></script>
-    <script src="./assets/js/charts.js?v=20260423a" defer></script>
-    <script src="./assets/js/pyodide-client.js?v=20260423a" defer></script>
-    <script src="./assets/js/time-series-module.js?v=20260423a" defer></script>
-    <script src="./assets/js/app.js?v=20260423a" defer></script>
+    <script src="./assets/js/config.js?v=20260424a" defer></script>
+    <script src="./assets/js/python-sources.js?v=20260424a" defer></script>
+    <script src="./assets/js/charts.js?v=20260424a" defer></script>
+    <script src="./assets/js/pyodide-client.js?v=20260424a" defer></script>
+    <script src="./assets/js/time-series-module.js?v=20260424a" defer></script>
+    <script src="./assets/js/compare-module.js?v=20260424a" defer></script>
+    <script src="./assets/js/app.js?v=20260424a" defer></script>
   </head>
   <body>
     <main class="app-shell">
@@ -44,6 +45,9 @@
       <nav class="tabs" aria-label="Workflows">
         <button class="tab-button" type="button" data-tab-button="plot" data-active="true">
           Time Series
+        </button>
+        <button class="tab-button" type="button" data-tab-button="compare" data-active="false">
+          Compare
         </button>
         <button class="tab-button" type="button" data-tab-button="cmc" data-active="false">
           CMC
@@ -117,6 +121,9 @@
                   </button>
                   <button id="plot-export" class="secondary-button" type="button" disabled>
                     Export PNG
+                  </button>
+                  <button id="plot-mark-compare" class="ghost-button" type="button">
+                    Mark for Compare
                   </button>
                 </div>
               </div>
@@ -235,6 +242,78 @@
             <div data-plot-help-content></div>
           </div>
         </dialog>
+      </section>
+
+      <section class="panel" data-tab-panel="compare" hidden>
+        <header class="panel-header">
+          <div>
+            <h2>Compare</h2>
+            <p>Marked curves stay in memory for this browser session.</p>
+          </div>
+        </header>
+
+        <div class="analysis-layout">
+          <div class="field-card">
+            <h3>Controls</h3>
+            <div class="field-grid">
+              <div class="metric-grid" data-compare-summary></div>
+              <div class="button-row">
+                <button id="compare-plot" class="primary-button" type="button">
+                  Plot Selected
+                </button>
+                <button id="compare-export" class="secondary-button" type="button" disabled>
+                  Export PNG
+                </button>
+                <button id="compare-remove-selected" class="ghost-button" type="button">
+                  Remove Selected
+                </button>
+                <button id="compare-clear" class="ghost-button" type="button">
+                  Clear All
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="plot-card">
+            <div class="plot-toolbar">
+              <div>
+                <h3>Compare Plot</h3>
+                <p>Legend labels use table indexes.</p>
+              </div>
+              <div class="slider-field">
+                <label for="compare-y-span">Y-axis Span</label>
+                <input id="compare-y-span" type="range" min="40" max="400" step="5" value="100" />
+                <span class="slider-value" data-compare-y-span-value>100%</span>
+              </div>
+            </div>
+            <div id="compare-canvas" class="plot-surface"></div>
+          </div>
+        </div>
+
+        <div class="table-card">
+          <h3>Marked Curves</h3>
+          <div class="empty-state" data-compare-empty>
+            Use Mark for Compare in the Time Series tab to add visible curves.
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Select</th>
+                  <th>Index</th>
+                  <th>File</th>
+                  <th>Experiment Range</th>
+                  <th>Selection</th>
+                  <th>Data Type</th>
+                  <th>Trend Method / Parameters</th>
+                  <th>Points</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody data-compare-table-body></tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       <section class="panel" data-tab-panel="cmc" hidden>

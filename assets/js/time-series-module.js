@@ -283,6 +283,10 @@
       : value.toFixed(4).replace(/\.?0+$/, "");
   }
 
+  function cloneSeriesValues(values) {
+    return Array.isArray(values) ? values.slice() : [];
+  }
+
   function buildHelpHtml() {
     const buildSection = (title, methods) => {
       return `
@@ -318,6 +322,7 @@
       this.showError = options.showError;
       this.clearError = options.clearError;
       this.normalizeUiError = options.normalizeUiError;
+      this.onMarkForCompare = options.onMarkForCompare;
 
       this.state = {
         file: null,
@@ -338,6 +343,7 @@
         plotAvgOnly: document.querySelector("#plot-avg-only"),
         plotAvgShowOriginal: document.querySelector("#plot-avg-show-original"),
         plotAnalyze: document.querySelector("#plot-run"),
+        plotMarkCompare: document.querySelector("#plot-mark-compare"),
         plotExport: document.querySelector("#plot-export"),
         plotSummary: document.querySelector("[data-plot-summary]"),
         plotCanvas: document.querySelector("#plot-canvas"),
@@ -397,6 +403,7 @@
       this.dom.plotAnalyze.addEventListener("click", () => {
         this.withRuntime(() => this.runPlot())();
       });
+      this.dom.plotMarkCompare.addEventListener("click", () => this.handleMarkForCompare());
       this.dom.trendApply.addEventListener("click", () => {
         this.withRuntime(() => this.applyTrend())();
       });
@@ -456,6 +463,36 @@
       this.state.showRaw = Boolean(this.dom.showRawToggle.checked);
       if (this.state.rawPayload) {
         this.renderCurrentPlot();
+      }
+    }
+
+    handleMarkForCompare() {
+      try {
+        this.clearError();
+        const curves = this.currentVisibleCompareCurves();
+        if (!curves.length) {
+          this.showError("No visible curves are available to mark. Analyze and plot data first.");
+          return;
+        }
+
+        const result = this.onMarkForCompare ? this.onMarkForCompare(curves) : null;
+        if (!result) {
+          this.setStatus(`Marked ${curves.length} visible curve${curves.length === 1 ? "" : "s"} for Compare.`);
+          return;
+        }
+
+        if (result.addedCount > 0) {
+          const skippedText = result.skippedCount
+            ? ` ${result.skippedCount} duplicate curve${result.skippedCount === 1 ? "" : "s"} skipped.`
+            : "";
+          this.setStatus(
+            `Marked ${result.addedCount} curve${result.addedCount === 1 ? "" : "s"} for Compare.${skippedText}`
+          );
+        } else {
+          this.showError("These visible curves are already in the Compare list.");
+        }
+      } catch (error) {
+        this.showError(this.normalizeUiError(error));
       }
     }
 
@@ -523,6 +560,67 @@
             this.dom.plotAvgShowOriginal.checked
         ),
       };
+    }
+
+    currentExperimentLabel() {
+      return (
+        this.dom.plotExpRange.value.trim() ||
+        this.state.rawPayload.defaultExpRange ||
+        this.state.rawPayload.expTag ||
+        "all"
+      );
+    }
+
+    buildCompareCurve(series, dataType, index) {
+      const isTrend = dataType === "trend";
+      const trendMethod = isTrend && this.state.trendPayload ? this.state.trendPayload.method.label : "";
+      const trendParameters =
+        isTrend && this.state.trendPayload ? { ...this.state.trendPayload.method.parameters } : {};
+
+      return {
+        sourceFileName: this.state.file ? this.state.file.name : "Unknown file",
+        experimentRange: this.currentExperimentLabel(),
+        expTag: this.state.rawPayload.expTag,
+        rowRange: this.state.rawPayload.rowRange ? this.state.rawPayload.rowRange.slice() : [],
+        selection: String(series.name || `Series ${index + 1}`),
+        dataType,
+        trendMethod,
+        trendParameters,
+        xLabel: this.state.rawPayload.xLabel,
+        yLabel: "I.T. (mN/m)",
+        x: cloneSeriesValues(series.x),
+        y: cloneSeriesValues(series.y),
+        points: Array.isArray(series.y) ? series.y.length : 0,
+      };
+    }
+
+    currentVisibleCompareCurves() {
+      if (!this.state.rawPayload) {
+        return [];
+      }
+
+      const curves = [];
+      if (!this.state.trendPayload || this.state.showRaw) {
+        this.state.rawPayload.series.forEach((series, index) => {
+          curves.push(this.buildCompareCurve(series, "raw", index));
+        });
+      }
+
+      if (this.state.trendPayload) {
+        this.state.trendPayload.series.forEach((series, index) => {
+          curves.push(this.buildCompareCurve(series, "trend", index));
+        });
+      }
+
+      const plottedTraces = Array.from(this.dom.plotCanvas.data || []);
+      if (!plottedTraces.length) {
+        return curves;
+      }
+
+      return curves.filter((curve, index) => {
+        const trace = plottedTraces[index];
+        return !trace || (trace.visible !== false && trace.visible !== "legendonly");
+      });
     }
 
     syncAvgOverlayOption() {

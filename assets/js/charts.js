@@ -5,6 +5,15 @@
   const TEXT_COLOR = "#1f1f1f";
   const PALETTE = ["#2f5d8a", "#8a4f2f", "#3c7a5b", "#7a3c68", "#6a6a2f", "#2f6e73"];
 
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
   function baseLayout(options) {
     return {
       title: { text: options.title, font: { size: 18, family: FONT_FAMILY, color: TEXT_COLOR } },
@@ -193,24 +202,22 @@
 
   async function renderComparePlot(target, curves, options) {
     const opts = options || {};
-    const traces = curves.map((curve, index) => ({
-      type: "scatter",
-      mode: "lines",
-      name: "#" + curve.displayIndex,
-      x: curve.x,
-      y: curve.y,
-      line: {
-        width: 2,
-        color: PALETTE[index % PALETTE.length],
-        dash: curve.dataType === "trend" ? "dash" : "solid",
-      },
-      hovertemplate:
-        "#" +
-        curve.displayIndex +
-        "<br>" +
-        curve.selection +
-        "<br>%{x}, %{y:.4f}<extra></extra>",
-    }));
+    const traces = curves.map((curve, index) => {
+      const label = escapeHtml(String(curve.displayLabel || "").trim() || "#" + curve.displayIndex);
+      return {
+        type: "scatter",
+        mode: "lines",
+        name: label,
+        x: curve.x,
+        y: curve.y,
+        line: {
+          width: 2,
+          color: PALETTE[index % PALETTE.length],
+          dash: curve.dataType === "trend" ? "dash" : "solid",
+        },
+        hovertemplate: label + "<br>" + curve.selection + "<br>%{x}, %{y:.4f}<extra></extra>",
+      };
+    });
 
     await Plotly.react(
       target,

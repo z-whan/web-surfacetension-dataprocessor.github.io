@@ -63,6 +63,15 @@
       : value.toFixed(4).replace(/\.?0+$/, "");
   }
 
+  function defaultDisplayLabel(curve) {
+    return `#${curve.displayIndex}`;
+  }
+
+  function curveDisplayLabel(curve) {
+    const label = String(curve.displayLabel || "").trim();
+    return label || defaultDisplayLabel(curve);
+  }
+
   class CompareModuleController {
     constructor(options) {
       this.charts = options.charts;
@@ -78,6 +87,7 @@
         nextDisplayIndex: 1,
         lastPlottedIds: [],
         manualYRange: null,
+        labelUpdateTimer: null,
       };
 
       this.dom = {
@@ -124,6 +134,24 @@
         this.updateSelectAllState();
         this.renderSummary();
       });
+
+      this.dom.tableBody.addEventListener("input", (event) => {
+        const input = event.target.closest("[data-compare-label-id]");
+        if (!input) {
+          return;
+        }
+
+        this.handleDisplayLabelInput(input);
+      });
+
+      this.dom.tableBody.addEventListener("blur", (event) => {
+        const input = event.target.closest("[data-compare-label-id]");
+        if (!input) {
+          return;
+        }
+
+        this.normalizeDisplayLabelInput(input);
+      }, true);
 
       this.dom.selectAll.addEventListener("change", () => {
         if (this.dom.selectAll.checked) {
@@ -261,6 +289,7 @@
           ...curve,
           id,
           displayIndex,
+          displayLabel: `#${displayIndex}`,
           duplicateKey,
           createdAt: new Date().toISOString(),
         };
@@ -318,6 +347,39 @@
       }
     }
 
+    handleDisplayLabelInput(input) {
+      const id = Number(input.dataset.compareLabelId);
+      const curve = this.state.curves.find((item) => item.id === id);
+      if (!curve) {
+        return;
+      }
+
+      curve.displayLabel = input.value.trim();
+
+      if (this.state.lastPlottedIds.includes(id)) {
+        window.clearTimeout(this.state.labelUpdateTimer);
+        this.state.labelUpdateTimer = window.setTimeout(() => {
+          this.plotSelected({ quiet: true });
+        }, 120);
+      }
+    }
+
+    normalizeDisplayLabelInput(input) {
+      const id = Number(input.dataset.compareLabelId);
+      const curve = this.state.curves.find((item) => item.id === id);
+      if (!curve) {
+        return;
+      }
+
+      curve.displayLabel = curveDisplayLabel(curve);
+      input.value = curve.displayLabel;
+    }
+
+    cancelPendingLabelUpdate() {
+      window.clearTimeout(this.state.labelUpdateTimer);
+      this.state.labelUpdateTimer = null;
+    }
+
     removeCurves(ids) {
       const idSet = new Set(ids.filter((id) => Number.isFinite(id)));
       if (!idSet.size) {
@@ -325,6 +387,7 @@
         return;
       }
 
+      this.cancelPendingLabelUpdate();
       this.state.curves = this.state.curves.filter((curve) => !idSet.has(curve.id));
       idSet.forEach((id) => this.state.selectedIds.delete(id));
       this.state.lastPlottedIds = [];
@@ -339,6 +402,7 @@
     }
 
     clearAll() {
+      this.cancelPendingLabelUpdate();
       this.state.curves = [];
       this.state.selectedIds.clear();
       this.state.lastPlottedIds = [];
@@ -440,10 +504,18 @@
               type="checkbox"
               data-compare-select-id="${curve.id}"
               ${this.state.selectedIds.has(curve.id) ? "checked" : ""}
-              aria-label="Select compare curve #${curve.displayIndex}"
+              aria-label="Select compare curve ${escapeHtml(curveDisplayLabel(curve))}"
             />
           </td>
-          <td>#${curve.displayIndex}</td>
+          <td>
+            <input
+              class="table-input compare-index-input"
+              type="text"
+              value="${escapeHtml(curveDisplayLabel(curve))}"
+              data-compare-label-id="${curve.id}"
+              aria-label="Compare curve label ${escapeHtml(defaultDisplayLabel(curve))}"
+            />
+          </td>
           <td><span class="table-file">[${escapeHtml(curve.sourceFileName)}]</span></td>
           <td>${escapeHtml(curve.experimentRange || "—")}</td>
           <td>${escapeHtml(curve.selection || "—")}</td>

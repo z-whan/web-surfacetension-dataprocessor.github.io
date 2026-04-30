@@ -393,6 +393,12 @@ select {
   padding: 5px 9px;
 }
 
+.compare-index-input {
+  width: 96px;
+  min-width: 72px;
+  padding: 5px 7px;
+}
+
 .primary-button:disabled,
 .secondary-button:disabled,
 .ghost-button:disabled {

@@ -54,6 +54,15 @@
     return curve.y.some((value) => Number.isFinite(Number(value)));
   }
 
+  function formatAxisRangeValue(value) {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return "";
+    }
+    return Math.abs(value) >= 1000 || (Math.abs(value) > 0 && Math.abs(value) < 0.01)
+      ? value.toExponential(4)
+      : value.toFixed(4).replace(/\.?0+$/, "");
+  }
+
   class CompareModuleController {
     constructor(options) {
       this.charts = options.charts;
@@ -68,6 +77,7 @@
         nextId: 1,
         nextDisplayIndex: 1,
         lastPlottedIds: [],
+        manualYRange: null,
       };
 
       this.dom = {
@@ -83,6 +93,9 @@
         clearButton: document.querySelector("#compare-clear"),
         ySpan: document.querySelector("#compare-y-span"),
         ySpanValue: document.querySelector("[data-compare-y-span-value]"),
+        yMin: document.querySelector("#compare-y-min"),
+        yMax: document.querySelector("#compare-y-max"),
+        selectAll: document.querySelector("#compare-select-all"),
       };
     }
 
@@ -107,7 +120,23 @@
         this.dom.exportButton.disabled = true;
         this.dom.exportSvgButton.disabled = true;
         this.dom.sendPublicationButton.disabled = true;
+        this.syncYRangeInputsFromCurrentSelection();
+        this.updateSelectAllState();
         this.renderSummary();
+      });
+
+      this.dom.selectAll.addEventListener("change", () => {
+        if (this.dom.selectAll.checked) {
+          this.state.curves.forEach((curve) => this.state.selectedIds.add(curve.id));
+        } else {
+          this.state.selectedIds.clear();
+        }
+        this.state.lastPlottedIds = [];
+        this.dom.exportButton.disabled = true;
+        this.dom.exportSvgButton.disabled = true;
+        this.dom.sendPublicationButton.disabled = true;
+        this.syncYRangeInputsFromCurrentSelection();
+        this.render();
       });
 
       this.dom.tableBody.addEventListener("click", (event) => {
@@ -154,11 +183,61 @@
         });
       });
       this.dom.ySpan.addEventListener("input", () => {
-        this.updateYSpanLabel();
-        if (this.state.lastPlottedIds.length) {
-          this.plotSelected({ quiet: true });
-        }
+        this.handleYSpanChange();
       });
+      this.dom.yMin.addEventListener("change", () => {
+        this.handleYRangeInputChange();
+      });
+      this.dom.yMax.addEventListener("change", () => {
+        this.handleYRangeInputChange();
+      });
+    }
+
+    handleYSpanChange() {
+      this.clearError();
+      this.state.manualYRange = null;
+      this.updateYSpanLabel();
+      this.syncYRangeInputsFromCurrentSelection();
+      if (this.state.lastPlottedIds.length) {
+        this.plotSelected({ quiet: true });
+      }
+    }
+
+    async handleYRangeInputChange() {
+      const minText = this.dom.yMin ? this.dom.yMin.value.trim() : "";
+      const maxText = this.dom.yMax ? this.dom.yMax.value.trim() : "";
+
+      if (!minText && !maxText) {
+        this.clearError();
+        this.state.manualYRange = null;
+        this.syncYRangeInputsFromCurrentSelection();
+        if (this.state.lastPlottedIds.length) {
+          await this.plotSelected({ quiet: true });
+        }
+        return;
+      }
+
+      if (!minText || !maxText) {
+        return;
+      }
+
+      const yMin = Number(minText);
+      const yMax = Number(maxText);
+      if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) {
+        this.showError("Y-axis limits must be numeric values.");
+        return;
+      }
+      if (yMax <= yMin) {
+        this.showError("The upper y-axis limit must be greater than the lower limit.");
+        return;
+      }
+
+      this.clearError();
+      this.state.manualYRange = [yMin, yMax];
+      this.syncYRangeInputs(this.state.manualYRange);
+      if (this.state.lastPlottedIds.length) {
+        await this.plotSelected({ quiet: true });
+      }
     }
 
     addCurves(curves) {
@@ -194,6 +273,8 @@
       this.dom.exportButton.disabled = true;
       this.dom.exportSvgButton.disabled = true;
       this.dom.sendPublicationButton.disabled = true;
+      this.setYRangeInputsEnabled(this.state.curves.length > 0);
+      this.syncYRangeInputsFromCurrentSelection();
       this.render();
       return { addedCount: added.length, skippedCount: skipped, totalCount: curves.length };
     }
@@ -222,6 +303,7 @@
         xLabel: valid[0].xLabel || "Time",
         yLabel: valid[0].yLabel || "I.T. (mN/m)",
         ySpanPercent: this.currentYSpanPercent(),
+        explicitYRange: this.state.manualYRange,
       });
       this.state.lastPlottedIds = valid.map((curve) => curve.id);
       this.dom.exportButton.disabled = false;
@@ -250,6 +332,8 @@
       this.dom.exportSvgButton.disabled = true;
       this.dom.sendPublicationButton.disabled = true;
       this.charts.clearPlot(this.dom.canvas);
+      this.setYRangeInputsEnabled(this.state.curves.length > 0);
+      this.syncYRangeInputsFromCurrentSelection();
       this.render();
       this.setStatus("Removed selected compare curve entries.");
     }
@@ -262,6 +346,9 @@
       this.dom.exportSvgButton.disabled = true;
       this.dom.sendPublicationButton.disabled = true;
       this.charts.clearPlot(this.dom.canvas);
+      this.state.manualYRange = null;
+      this.setYRangeInputsEnabled(false);
+      this.syncYRangeInputs(null);
       this.render();
       this.setStatus("Cleared compare list.");
     }
@@ -274,6 +361,58 @@
       if (this.dom.ySpanValue) {
         this.dom.ySpanValue.textContent = `${this.currentYSpanPercent()}%`;
       }
+    }
+
+    currentAutoYRange() {
+      const selected = this.selectedCurves().filter(hasUsableSeries);
+      if (!selected.length || !this.charts.resolveSeriesYRange) {
+        return null;
+      }
+      return this.charts.resolveSeriesYRange(selected, {
+        ySpanPercent: this.currentYSpanPercent(),
+      });
+    }
+
+    syncYRangeInputs(range) {
+      if (!this.dom.yMin || !this.dom.yMax) {
+        return;
+      }
+
+      if (!range) {
+        this.dom.yMin.value = "";
+        this.dom.yMax.value = "";
+        return;
+      }
+
+      this.dom.yMin.value = formatAxisRangeValue(range[0]);
+      this.dom.yMax.value = formatAxisRangeValue(range[1]);
+    }
+
+    syncYRangeInputsFromCurrentSelection() {
+      if (!this.state.manualYRange) {
+        this.syncYRangeInputs(this.currentAutoYRange());
+      }
+    }
+
+    setYRangeInputsEnabled(enabled) {
+      if (this.dom.yMin) {
+        this.dom.yMin.disabled = !enabled;
+      }
+      if (this.dom.yMax) {
+        this.dom.yMax.disabled = !enabled;
+      }
+    }
+
+    updateSelectAllState() {
+      if (!this.dom.selectAll) {
+        return;
+      }
+
+      const marked = this.state.curves.length;
+      const selected = this.state.curves.filter((curve) => this.state.selectedIds.has(curve.id)).length;
+      this.dom.selectAll.disabled = marked === 0;
+      this.dom.selectAll.checked = marked > 0 && selected === marked;
+      this.dom.selectAll.indeterminate = selected > 0 && selected < marked;
     }
 
     renderSummary(plottedCount, skippedCount) {
@@ -321,6 +460,7 @@
       });
 
       this.renderSummary();
+      this.updateSelectAllState();
     }
   }
 

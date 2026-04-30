@@ -493,6 +493,13 @@ th {
   background: #f3f3f3;
 }
 
+.select-all-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+
 .table-file {
   font-weight: 700;
 }

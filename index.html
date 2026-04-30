@@ -21,7 +21,7 @@
     <script src="./assets/js/publication-plot.js?v=20260430a" defer></script>
     <script src="./assets/js/pyodide-client.js?v=20260424a" defer></script>
     <script src="./assets/js/time-series-module.js?v=20260430a" defer></script>
-    <script src="./assets/js/compare-module.js?v=20260430a" defer></script>
+    <script src="./assets/js/compare-module.js?v=20260430b" defer></script>
     <script src="./assets/js/app.js?v=20260430a" defer></script>
   </head>
   <body>
@@ -319,7 +319,31 @@
               <div class="slider-field">
                 <label for="compare-y-span">Y-axis Span</label>
                 <input id="compare-y-span" type="range" min="40" max="400" step="5" value="100" />
-                <span class="slider-value" data-compare-y-span-value>100%</span>
+                <div class="slider-field-meta">
+                  <span class="slider-value" data-compare-y-span-value>100%</span>
+                  <div class="range-input-row">
+                    <input
+                      id="compare-y-min"
+                      type="text"
+                      inputmode="decimal"
+                      placeholder="min"
+                      aria-label="Compare y-axis lower bound"
+                      disabled
+                    />
+                    <span class="range-separator">to</span>
+                    <input
+                      id="compare-y-max"
+                      type="text"
+                      inputmode="decimal"
+                      placeholder="max"
+                      aria-label="Compare y-axis upper bound"
+                      disabled
+                    />
+                  </div>
+                </div>
+                <p class="field-hint">
+                  Slider updates the default range. Edit the boxes for a custom range, or clear both to return to slider mode.
+                </p>
               </div>
             </div>
             <div id="compare-canvas" class="plot-surface"></div>
@@ -335,7 +359,17 @@
             <table>
               <thead>
                 <tr>
-                  <th>Select</th>
+                  <th>
+                    <label class="select-all-cell" for="compare-select-all">
+                      <input
+                        id="compare-select-all"
+                        type="checkbox"
+                        aria-label="Select or clear all compare curves"
+                        disabled
+                      />
+                      <span>Select</span>
+                    </label>
+                  </th>
                   <th>Index</th>
                   <th>File</th>
                   <th>Experiment Range</th>

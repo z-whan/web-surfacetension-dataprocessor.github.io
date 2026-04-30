@@ -323,6 +323,7 @@
       this.clearError = options.clearError;
       this.normalizeUiError = options.normalizeUiError;
       this.onMarkForCompare = options.onMarkForCompare;
+      this.onSendToPublication = options.onSendToPublication;
 
       this.state = {
         file: null,
@@ -345,6 +346,8 @@
         plotAnalyze: document.querySelector("#plot-run"),
         plotMarkCompare: document.querySelector("#plot-mark-compare"),
         plotExport: document.querySelector("#plot-export"),
+        plotExportSvg: document.querySelector("#plot-export-svg"),
+        plotSendPublication: document.querySelector("#plot-send-publication"),
         plotSummary: document.querySelector("[data-plot-summary]"),
         plotCanvas: document.querySelector("#plot-canvas"),
         plotYSpan: document.querySelector("#plot-y-span"),
@@ -362,6 +365,9 @@
         noiseSummary: document.querySelector("[data-plot-noise-summary]"),
         noiseTable: document.querySelector("[data-plot-noise-table]"),
         noiseCanvas: document.querySelector("#plot-noise-canvas"),
+        noiseExport: document.querySelector("#plot-noise-export"),
+        noiseExportSvg: document.querySelector("#plot-noise-export-svg"),
+        noiseSendPublication: document.querySelector("#plot-noise-send-publication"),
         noiseCard: document.querySelector("[data-plot-noise-card]"),
         helpButton: document.querySelector("#plot-help-button"),
         helpDialog: document.querySelector("#plot-help-dialog"),
@@ -415,6 +421,35 @@
           await this.charts.exportPlotAsPng(this.dom.plotCanvas, "time-series-plot");
         }
       });
+      this.dom.plotExportSvg.addEventListener("click", async () => {
+        if (this.state.rawPayload) {
+          await this.charts.exportPlotImage(this.dom.plotCanvas, "time-series-plot", { format: "svg" });
+        }
+      });
+      this.dom.plotSendPublication.addEventListener("click", () => {
+        this.sendToPublication(this.dom.plotCanvas, {
+          sourceType: "time-series",
+          sourceTitle: "Time-series plot",
+          filenameBase: "time-series-publication",
+        });
+      });
+      this.dom.noiseExport.addEventListener("click", async () => {
+        if (this.state.noisePayload && this.state.noisePayload.plot) {
+          await this.charts.exportPlotAsPng(this.dom.noiseCanvas, "noise-analysis-plot");
+        }
+      });
+      this.dom.noiseExportSvg.addEventListener("click", async () => {
+        if (this.state.noisePayload && this.state.noisePayload.plot) {
+          await this.charts.exportPlotImage(this.dom.noiseCanvas, "noise-analysis-plot", { format: "svg" });
+        }
+      });
+      this.dom.noiseSendPublication.addEventListener("click", () => {
+        this.sendToPublication(this.dom.noiseCanvas, {
+          sourceType: "noise",
+          sourceTitle: "Noise analysis plot",
+          filenameBase: "noise-analysis-publication",
+        });
+      });
       this.dom.helpButton.addEventListener("click", () => this.openHelp());
       this.dom.helpClose.addEventListener("click", () => this.closeHelp());
     }
@@ -447,6 +482,8 @@
       this.dom.showRawToggle.checked = true;
       this.dom.plotMeta.textContent = this.describeFile(this.state.file);
       this.dom.plotExport.disabled = true;
+      this.dom.plotExportSvg.disabled = true;
+      this.dom.plotSendPublication.disabled = true;
       this.renderPlotSummary(null);
       this.renderTrendStatus("No trend has been applied yet.");
       this.renderNoiseOutput(null);
@@ -742,6 +779,8 @@
       this.renderPlotSummary(payload);
       await this.renderCurrentPlot();
       this.dom.plotExport.disabled = false;
+      this.dom.plotExportSvg.disabled = false;
+      this.dom.plotSendPublication.disabled = false;
       this.setStatus(`Rendered ${payload.summary.seriesCount} series from ${this.state.file.name}.`);
     }
 
@@ -775,6 +814,8 @@
         this.renderTrendStatus(trendPayload.summaryText);
         await this.renderCurrentPlot();
         this.dom.plotExport.disabled = false;
+        this.dom.plotExportSvg.disabled = false;
+        this.dom.plotSendPublication.disabled = false;
         this.setStatus(`${trendPayload.method.label} applied to ${this.state.file.name}.`);
       } finally {
         this.pyodideClient.removeFsFile(staged.fsPath);
@@ -819,6 +860,9 @@
         this.state.noisePayload = payload;
         this.renderPlotSummary(rawPayload);
         await this.renderCurrentPlot();
+        this.dom.plotExport.disabled = false;
+        this.dom.plotExportSvg.disabled = false;
+        this.dom.plotSendPublication.disabled = false;
         await this.renderNoiseOutput(payload);
         this.setStatus(`${payload.method.label} completed for ${this.state.file.name}.`);
       } finally {
@@ -894,6 +938,9 @@
         this.dom.noiseSummary.textContent = "No noise analysis yet.";
         this.dom.noiseTable.innerHTML = "";
         this.dom.noiseCanvas.hidden = true;
+        this.dom.noiseExport.disabled = true;
+        this.dom.noiseExportSvg.disabled = true;
+        this.dom.noiseSendPublication.disabled = true;
         this.charts.clearPlot(this.dom.noiseCanvas);
         return;
       }
@@ -907,10 +954,24 @@
       if (payload.plot) {
         this.dom.noiseCanvas.hidden = false;
         await this.charts.renderAnalysisPlot(this.dom.noiseCanvas, payload.plot);
+        this.dom.noiseExport.disabled = false;
+        this.dom.noiseExportSvg.disabled = false;
+        this.dom.noiseSendPublication.disabled = false;
       } else {
         this.dom.noiseCanvas.hidden = true;
+        this.dom.noiseExport.disabled = true;
+        this.dom.noiseExportSvg.disabled = true;
+        this.dom.noiseSendPublication.disabled = true;
         this.charts.clearPlot(this.dom.noiseCanvas);
       }
+    }
+
+    sendToPublication(plotElement, metadata) {
+      if (!this.onSendToPublication) {
+        this.showError("Publication Plot is not available.");
+        return;
+      }
+      this.onSendToPublication(plotElement, metadata);
     }
 
     openHelp() {

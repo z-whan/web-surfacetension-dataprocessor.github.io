@@ -60,6 +60,7 @@
       this.setStatus = options.setStatus;
       this.showError = options.showError;
       this.clearError = options.clearError;
+      this.onSendToPublication = options.onSendToPublication;
 
       this.state = {
         curves: [],
@@ -76,6 +77,8 @@
         canvas: document.querySelector("#compare-canvas"),
         plotButton: document.querySelector("#compare-plot"),
         exportButton: document.querySelector("#compare-export"),
+        exportSvgButton: document.querySelector("#compare-export-svg"),
+        sendPublicationButton: document.querySelector("#compare-send-publication"),
         removeSelectedButton: document.querySelector("#compare-remove-selected"),
         clearButton: document.querySelector("#compare-clear"),
         ySpan: document.querySelector("#compare-y-span"),
@@ -102,6 +105,8 @@
         }
         this.state.lastPlottedIds = [];
         this.dom.exportButton.disabled = true;
+        this.dom.exportSvgButton.disabled = true;
+        this.dom.sendPublicationButton.disabled = true;
         this.renderSummary();
       });
 
@@ -127,6 +132,26 @@
           return;
         }
         await this.charts.exportPlotAsPng(this.dom.canvas, "compare-curves");
+      });
+      this.dom.exportSvgButton.addEventListener("click", async () => {
+        if (!this.state.lastPlottedIds.length) {
+          return;
+        }
+        await this.charts.exportPlotImage(this.dom.canvas, "compare-curves", { format: "svg" });
+      });
+      this.dom.sendPublicationButton.addEventListener("click", () => {
+        if (!this.state.lastPlottedIds.length) {
+          return;
+        }
+        if (!this.onSendToPublication) {
+          this.showError("Publication Plot is not available.");
+          return;
+        }
+        this.onSendToPublication(this.dom.canvas, {
+          sourceType: "compare",
+          sourceTitle: "Compare plot",
+          filenameBase: "compare-publication",
+        });
       });
       this.dom.ySpan.addEventListener("input", () => {
         this.updateYSpanLabel();
@@ -167,6 +192,8 @@
 
       this.state.lastPlottedIds = [];
       this.dom.exportButton.disabled = true;
+      this.dom.exportSvgButton.disabled = true;
+      this.dom.sendPublicationButton.disabled = true;
       this.render();
       return { addedCount: added.length, skippedCount: skipped, totalCount: curves.length };
     }
@@ -198,6 +225,8 @@
       });
       this.state.lastPlottedIds = valid.map((curve) => curve.id);
       this.dom.exportButton.disabled = false;
+      this.dom.exportSvgButton.disabled = false;
+      this.dom.sendPublicationButton.disabled = false;
       this.renderSummary(valid.length, skipped);
       if (!opts.quiet) {
         this.setStatus(`Compared ${valid.length} marked curve${valid.length === 1 ? "" : "s"}.`);
@@ -218,6 +247,8 @@
       idSet.forEach((id) => this.state.selectedIds.delete(id));
       this.state.lastPlottedIds = [];
       this.dom.exportButton.disabled = true;
+      this.dom.exportSvgButton.disabled = true;
+      this.dom.sendPublicationButton.disabled = true;
       this.charts.clearPlot(this.dom.canvas);
       this.render();
       this.setStatus("Removed selected compare curve entries.");
@@ -228,6 +259,8 @@
       this.state.selectedIds.clear();
       this.state.lastPlottedIds = [];
       this.dom.exportButton.disabled = true;
+      this.dom.exportSvgButton.disabled = true;
+      this.dom.sendPublicationButton.disabled = true;
       this.charts.clearPlot(this.dom.canvas);
       this.render();
       this.setStatus("Cleared compare list.");

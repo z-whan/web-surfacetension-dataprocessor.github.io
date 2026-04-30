@@ -13,15 +13,16 @@
     <link rel="icon" type="image/png" sizes="32x32" href="./assets/icons/favicon-32.png?v=20260424b" />
     <link rel="apple-touch-icon" sizes="180x180" href="./assets/icons/apple-touch-icon.png?v=20260424b" />
     <link rel="manifest" href="./site.webmanifest?v=20260424b" />
-    <link rel="stylesheet" href="./assets/css/main.css?v=20260424a" />
+    <link rel="stylesheet" href="./assets/css/main.css?v=20260430a" />
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
     <script src="./assets/js/config.js?v=20260424a" defer></script>
     <script src="./assets/js/python-sources.js?v=20260424a" defer></script>
-    <script src="./assets/js/charts.js?v=20260424a" defer></script>
+    <script src="./assets/js/charts.js?v=20260430a" defer></script>
+    <script src="./assets/js/publication-plot.js?v=20260430a" defer></script>
     <script src="./assets/js/pyodide-client.js?v=20260424a" defer></script>
-    <script src="./assets/js/time-series-module.js?v=20260424a" defer></script>
-    <script src="./assets/js/compare-module.js?v=20260424a" defer></script>
-    <script src="./assets/js/app.js?v=20260424a" defer></script>
+    <script src="./assets/js/time-series-module.js?v=20260430a" defer></script>
+    <script src="./assets/js/compare-module.js?v=20260430a" defer></script>
+    <script src="./assets/js/app.js?v=20260430a" defer></script>
   </head>
   <body>
     <main class="app-shell">
@@ -56,6 +57,9 @@
         </button>
         <button class="tab-button" type="button" data-tab-button="cmc" data-active="false">
           CMC
+        </button>
+        <button class="tab-button" type="button" data-tab-button="publication" data-active="false">
+          Publication Plot
         </button>
       </nav>
 
@@ -126,6 +130,12 @@
                   </button>
                   <button id="plot-export" class="secondary-button" type="button" disabled>
                     Export PNG
+                  </button>
+                  <button id="plot-export-svg" class="secondary-button" type="button" disabled>
+                    Export SVG
+                  </button>
+                  <button id="plot-send-publication" class="ghost-button" type="button" disabled>
+                    Send to Publication Plot
                   </button>
                   <button id="plot-mark-compare" class="ghost-button" type="button">
                     Mark for Compare
@@ -230,8 +240,23 @@
             </div>
 
             <div class="table-card" data-plot-noise-card>
-              <h3>Noise Results</h3>
-              <p class="result-text" data-plot-noise-summary>No noise analysis yet.</p>
+              <div class="table-card-header">
+                <div>
+                  <h3>Noise Results</h3>
+                  <p class="result-text" data-plot-noise-summary>No noise analysis yet.</p>
+                </div>
+                <div class="button-row">
+                  <button id="plot-noise-export" class="secondary-button" type="button" disabled>
+                    Export PNG
+                  </button>
+                  <button id="plot-noise-export-svg" class="secondary-button" type="button" disabled>
+                    Export SVG
+                  </button>
+                  <button id="plot-noise-send-publication" class="ghost-button" type="button" disabled>
+                    Send to Publication Plot
+                  </button>
+                </div>
+              </div>
               <div data-plot-noise-table></div>
               <div id="plot-noise-canvas" class="plot-surface plot-surface-secondary" hidden></div>
             </div>
@@ -268,6 +293,12 @@
                 </button>
                 <button id="compare-export" class="secondary-button" type="button" disabled>
                   Export PNG
+                </button>
+                <button id="compare-export-svg" class="secondary-button" type="button" disabled>
+                  Export SVG
+                </button>
+                <button id="compare-send-publication" class="ghost-button" type="button" disabled>
+                  Send to Publication Plot
                 </button>
                 <button id="compare-remove-selected" class="ghost-button" type="button">
                   Remove Selected
@@ -368,6 +399,12 @@
                 <button id="cmc-export" class="secondary-button" type="button" disabled>
                   Export PNG
                 </button>
+                <button id="cmc-export-svg" class="secondary-button" type="button" disabled>
+                  Export SVG
+                </button>
+                <button id="cmc-send-publication" class="ghost-button" type="button" disabled>
+                  Send to Publication Plot
+                </button>
               </div>
             </div>
           </div>
@@ -396,6 +433,157 @@
               </thead>
               <tbody data-cmc-table-body></tbody>
             </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" data-tab-panel="publication" hidden>
+        <header class="panel-header">
+          <div>
+            <h2>Publication Plot</h2>
+            <p>Polish a copied chart visually, then export a presentation-ready PNG or SVG.</p>
+          </div>
+        </header>
+
+        <div class="publication-layout">
+          <div class="controls-stack">
+            <div class="field-card">
+              <h3>General</h3>
+              <div class="field-grid">
+                <div class="info-box" data-publication-status>
+                  No figure loaded yet. Send a chart from an analysis tab.
+                </div>
+                <div class="field">
+                  <label for="publication-title">Figure Title</label>
+                  <input id="publication-title" type="text" />
+                </div>
+                <div class="form-grid">
+                  <div class="field">
+                    <label for="publication-width">Figure Width</label>
+                    <input id="publication-width" type="number" min="320" step="10" value="1400" />
+                  </div>
+                  <div class="field">
+                    <label for="publication-height">Figure Height</label>
+                    <input id="publication-height" type="number" min="240" step="10" value="900" />
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="publication-font-size">Global Font Size</label>
+                  <input id="publication-font-size" type="number" min="6" max="48" step="1" value="14" />
+                </div>
+              </div>
+            </div>
+
+            <div class="field-card">
+              <h3>Axes</h3>
+              <div class="field-grid">
+                <div class="field">
+                  <label for="publication-x-title">X-axis Title</label>
+                  <input id="publication-x-title" type="text" />
+                </div>
+                <div class="field">
+                  <label for="publication-y-title">Y-axis Title</label>
+                  <input id="publication-y-title" type="text" />
+                </div>
+                <div class="form-grid">
+                  <div class="field">
+                    <label for="publication-tick-font-size">Tick Font Size</label>
+                    <input id="publication-tick-font-size" type="number" min="6" max="48" step="1" value="12" />
+                  </div>
+                  <div class="field">
+                    <label for="publication-axis-line-width">Axis Line Width</label>
+                    <input id="publication-axis-line-width" type="number" min="0" max="12" step="0.5" value="1" />
+                  </div>
+                </div>
+                <div class="form-grid">
+                  <div class="field">
+                    <label for="publication-x-min">X Min</label>
+                    <input id="publication-x-min" type="number" step="any" placeholder="auto" />
+                  </div>
+                  <div class="field">
+                    <label for="publication-x-max">X Max</label>
+                    <input id="publication-x-max" type="number" step="any" placeholder="auto" />
+                  </div>
+                  <div class="field">
+                    <label for="publication-y-min">Y Min</label>
+                    <input id="publication-y-min" type="number" step="any" placeholder="auto" />
+                  </div>
+                  <div class="field">
+                    <label for="publication-y-max">Y Max</label>
+                    <input id="publication-y-max" type="number" step="any" placeholder="auto" />
+                  </div>
+                </div>
+                <div class="button-row">
+                  <button id="publication-reset-axes" class="ghost-button" type="button">
+                    Reset Axis Autorange
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="field-card">
+              <h3>Legend</h3>
+              <div class="field-grid">
+                <label class="checkbox-row checkbox-row-compact" for="publication-show-legend">
+                  <input id="publication-show-legend" type="checkbox" checked />
+                  Show legend
+                </label>
+                <div class="form-grid">
+                  <div class="field">
+                    <label for="publication-legend-font-size">Legend Font Size</label>
+                    <input id="publication-legend-font-size" type="number" min="6" max="48" step="1" value="12" />
+                  </div>
+                  <div class="field">
+                    <label for="publication-legend-position">Legend Position</label>
+                    <select id="publication-legend-position">
+                      <option value="top-right">top right</option>
+                      <option value="top-left">top left</option>
+                      <option value="bottom-right">bottom right</option>
+                      <option value="bottom-left">bottom left</option>
+                      <option value="outside-right">outside right</option>
+                      <option value="custom">custom</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-grid">
+                  <div class="field">
+                    <label for="publication-legend-x">Legend X</label>
+                    <input id="publication-legend-x" type="number" step="0.05" />
+                  </div>
+                  <div class="field">
+                    <label for="publication-legend-y">Legend Y</label>
+                    <input id="publication-legend-y" type="number" step="0.05" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="field-card">
+              <h3>Traces</h3>
+              <div class="trace-editor-list" data-publication-traces>
+                <div class="empty-state">No traces loaded.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="results-stack">
+            <div class="plot-card">
+              <div class="plot-toolbar">
+                <div>
+                  <h3>Edited Figure</h3>
+                  <p>Style changes affect this copied figure only.</p>
+                </div>
+                <div class="button-row">
+                  <button id="publication-export-png" class="secondary-button" type="button" disabled>
+                    Export PNG
+                  </button>
+                  <button id="publication-export-svg" class="secondary-button" type="button" disabled>
+                    Export SVG
+                  </button>
+                </div>
+              </div>
+              <div id="publication-canvas" class="plot-surface publication-plot-surface"></div>
+            </div>
           </div>
         </div>
       </section>

@@ -29,6 +29,8 @@
     cmcUseLog: document.querySelector("#cmc-use-log"),
     cmcAnalyze: document.querySelector("#cmc-run"),
     cmcExport: document.querySelector("#cmc-export"),
+    cmcExportSvg: document.querySelector("#cmc-export-svg"),
+    cmcSendPublication: document.querySelector("#cmc-send-publication"),
     cmcSummary: document.querySelector("[data-cmc-summary]"),
     cmcCanvas: document.querySelector("#cmc-canvas"),
     cmcEmpty: document.querySelector("[data-cmc-empty]"),
@@ -36,6 +38,7 @@
 
   let timeSeriesController = null;
   let compareController = null;
+  let publicationController = null;
 
   function setStatus(message) {
     dom.statusText.textContent = message;
@@ -142,6 +145,8 @@
     }));
     state.cmc.payload = null;
     dom.cmcExport.disabled = true;
+    dom.cmcExportSvg.disabled = true;
+    dom.cmcSendPublication.disabled = true;
     renderCmcTable();
     renderCmcSummary(null);
     charts.clearPlot(dom.cmcCanvas);
@@ -190,6 +195,8 @@
       await charts.renderCmcPlot(dom.cmcCanvas, payload);
       renderCmcSummary(payload);
       dom.cmcExport.disabled = false;
+      dom.cmcExportSvg.disabled = false;
+      dom.cmcSendPublication.disabled = false;
       setStatus("Computed CMC stats for " + payload.summary.fileCount + " files locally.");
     } finally {
       stagedRows.forEach((staged) => {
@@ -261,6 +268,8 @@
       state.cmc.rows.splice(index, 1);
       state.cmc.payload = null;
       dom.cmcExport.disabled = true;
+      dom.cmcExportSvg.disabled = true;
+      dom.cmcSendPublication.disabled = true;
       renderCmcTable();
       renderCmcSummary(null);
       charts.clearPlot(dom.cmcCanvas);
@@ -280,6 +289,30 @@
         await charts.exportPlotAsPng(dom.cmcCanvas, "cmc-curve");
       }
     });
+    dom.cmcExportSvg.addEventListener("click", async () => {
+      if (state.cmc.payload) {
+        await charts.exportPlotImage(dom.cmcCanvas, "cmc-curve", { format: "svg" });
+      }
+    });
+    dom.cmcSendPublication.addEventListener("click", () => {
+      if (!state.cmc.payload || !publicationController) {
+        return;
+      }
+      publicationController.copyFromPlot(dom.cmcCanvas, {
+        sourceType: "cmc",
+        sourceTitle: "CMC plot",
+        filenameBase: "cmc-publication",
+      });
+    });
+  }
+
+  function initializePublicationModule() {
+    publicationController = window.SurfaceLabPublicationPlot.createController({
+      charts,
+      activateTab,
+      setStatus,
+    });
+    publicationController.bind();
   }
 
   function initializeTimeSeriesModule() {
@@ -293,6 +326,8 @@
       clearError,
       normalizeUiError,
       onMarkForCompare: (curves) => compareController.addCurves(curves),
+      onSendToPublication: (plotElement, metadata) =>
+        publicationController.copyFromPlot(plotElement, metadata),
     });
     timeSeriesController.bind();
   }
@@ -303,12 +338,15 @@
       setStatus,
       showError,
       clearError,
+      onSendToPublication: (plotElement, metadata) =>
+        publicationController.copyFromPlot(plotElement, metadata),
     });
     compareController.bind();
   }
 
   async function boot() {
     bindTabs();
+    initializePublicationModule();
     bindActions();
     bindCmcTableEditing();
     initializeCompareModule();

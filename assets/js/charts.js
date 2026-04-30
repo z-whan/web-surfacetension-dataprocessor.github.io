@@ -275,12 +275,58 @@
     });
   }
 
+  function resolvePlotTarget(plotElementOrId) {
+    if (typeof plotElementOrId === "string") {
+      return document.getElementById(plotElementOrId);
+    }
+    return plotElementOrId;
+  }
+
+  function resolvePlotSize(target, options) {
+    const opts = options || {};
+    const rect = target && typeof target.getBoundingClientRect === "function"
+      ? target.getBoundingClientRect()
+      : null;
+
+    return {
+      width: Number(opts.width) || Math.round(rect && rect.width ? rect.width : 1400),
+      height: Number(opts.height) || Math.round(rect && rect.height ? rect.height : 900),
+    };
+  }
+
+  function sanitizeFilenameBase(value) {
+    return String(value || "plot")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-_]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 96) || "plot";
+  }
+
+  async function exportPlotImage(plotElementOrId, filenameBase, options) {
+    const target = resolvePlotTarget(plotElementOrId);
+    const opts = options || {};
+    const format = opts.format === "svg" ? "svg" : "png";
+    const size = resolvePlotSize(target, opts);
+    const downloadOptions = {
+      format,
+      width: size.width,
+      height: size.height,
+      filename: sanitizeFilenameBase(filenameBase),
+    };
+
+    if (format === "png" && opts.scale) {
+      downloadOptions.scale = Number(opts.scale) || 1;
+    }
+
+    await Plotly.downloadImage(target, downloadOptions);
+  }
+
   async function exportPlotAsPng(target, filename) {
-    await Plotly.downloadImage(target, {
+    await exportPlotImage(target, filename, {
       format: "png",
       width: 1400,
       height: 900,
-      filename,
     });
   }
 
@@ -290,6 +336,7 @@
     renderComparePlot,
     renderTimeSeriesPlot,
     renderCmcPlot,
+    exportPlotImage,
     exportPlotAsPng,
     resolveSeriesYRange,
     resolveTimeSeriesYRange,

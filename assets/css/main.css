@@ -443,12 +443,34 @@ select {
 
 .publication-layout {
   display: grid;
-  grid-template-columns: 420px 1fr;
+  grid-template-columns: minmax(340px, 420px) minmax(560px, 1fr);
   gap: 16px;
+  height: calc(100vh - 220px);
+  min-height: 540px;
+  align-items: stretch;
+}
+
+.publication-controls-panel,
+.publication-preview-panel {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
+.publication-preview-panel {
+  padding: 0;
+}
+
+.publication-preview-panel .plot-card {
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(420px, 1fr);
 }
 
 .publication-plot-surface {
-  min-height: 620px;
+  min-height: 0;
+  height: 100%;
   overflow: auto;
 }
 
@@ -596,6 +618,27 @@ th {
   .plot-toolbar,
   .table-card-header {
     flex-direction: column;
+  }
+
+  .publication-layout {
+    height: auto;
+    min-height: 0;
+  }
+
+  .publication-controls-panel,
+  .publication-preview-panel {
+    overflow-y: visible;
+    padding-right: 0;
+  }
+
+  .publication-preview-panel .plot-card {
+    display: block;
+    min-height: 0;
+  }
+
+  .publication-plot-surface {
+    min-height: 460px;
+    height: auto;
   }
 
   .trace-style-grid {

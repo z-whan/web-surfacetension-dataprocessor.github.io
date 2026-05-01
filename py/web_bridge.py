@@ -9,7 +9,10 @@ from DataProcessor.services.cmc_analysis import (
     infer_concentration_from_filename,
     summarize_droplet_means,
 )
-from DataProcessor.services.dataframe_loader import load_plot_dataframe
+from DataProcessor.services.dataframe_loader import (
+    load_plot_dataframe,
+    parse_famas_measurement_detail_volumes,
+)
 from DataProcessor.services.errors import DataProcessingError
 from DataProcessor.services.plot_analysis import prepare_plot_dataset
 from DataProcessor.services.time_series_analysis import (
@@ -32,17 +35,19 @@ def _finite_or_none(value: Any) -> float | int | str | None:
     return value
 
 
-def _series_payload(x_values, y_values) -> list[dict[str, Any]]:
+def _series_payload(x_values, y_values, experiment_indexes=None) -> list[dict[str, Any]]:
     x_list = [_finite_or_none(value) for value in x_values.tolist()]
     series: list[dict[str, Any]] = []
-    for col in y_values.columns:
-        series.append(
-            {
-                "name": str(col),
-                "x": x_list,
-                "y": [_finite_or_none(value) for value in y_values[col].tolist()],
-            }
-        )
+    experiment_indexes = experiment_indexes or []
+    for idx, col in enumerate(y_values.columns):
+        item = {
+            "name": str(col),
+            "x": x_list,
+            "y": [_finite_or_none(value) for value in y_values[col].tolist()],
+        }
+        if idx < len(experiment_indexes) and experiment_indexes[idx] is not None:
+            item["experimentIndex"] = int(experiment_indexes[idx])
+        series.append(item)
     return series
 
 
@@ -53,7 +58,7 @@ def _summary_rows_payload(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return payload
 
 
-def _load_plot_dataset(
+def _prepare_plot_dataframe_and_dataset(
     source_path: str,
     start_text: str,
     end_text: str,
@@ -62,7 +67,7 @@ def _load_plot_dataset(
     show_original_with_avg: bool = False,
 ):
     df = load_plot_dataframe(source_path)
-    return prepare_plot_dataset(
+    dataset = prepare_plot_dataset(
         df=df,
         start_text=start_text,
         end_text=end_text,
@@ -70,6 +75,163 @@ def _load_plot_dataset(
         avg_only=avg_only,
         show_original_with_avg=show_original_with_avg,
     )
+    return df, dataset
+
+
+def _load_plot_dataset(
+    source_path: str,
+    start_text: str,
+    end_text: str,
+    exp_range_text: str,
+    avg_only: bool,
+    show_original_with_avg: bool = False,
+):
+    _, dataset = _prepare_plot_dataframe_and_dataset(
+        source_path,
+        start_text,
+        end_text,
+        exp_range_text,
+        avg_only,
+        show_original_with_avg,
+    )
+    return dataset
+
+
+def _positive_float_or_none(value: Any) -> float | None:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isfinite(numeric) and numeric > 0:
+        return numeric
+    return None
+
+
+def _x_value_for_detail_row(x_values, row_range: tuple[int, int], row_index: int) -> tuple[float | int | None, bool]:
+    offset = row_index - row_range[0]
+    if 0 <= offset < len(x_values):
+        x_value = _finite_or_none(x_values.iloc[offset])
+        if x_value is not None:
+            return x_value, False
+    return row_index, True
+
+
+def _volume_series_from_detail(
+    detail_entries: list[dict[str, Any]],
+    *,
+    experiment_index: int,
+    x_values,
+    row_range: tuple[int, int],
+) -> tuple[dict[str, Any] | None, bool]:
+    x: list[float | int] = []
+    y: list[float] = []
+    used_row_index_fallback = False
+    start, end = row_range
+
+    for entry in sorted(detail_entries, key=lambda item: int(item.get("rowIndex", 0) or 0)):
+        row_index = int(entry.get("rowIndex", 0) or 0)
+        if row_index < start or row_index > end:
+            continue
+        volume = _positive_float_or_none(entry.get("volume"))
+        if volume is None:
+            continue
+        x_value, used_fallback = _x_value_for_detail_row(x_values, row_range, row_index)
+        if x_value is None:
+            continue
+        used_row_index_fallback = used_row_index_fallback or used_fallback
+        x.append(x_value)
+        y.append(volume)
+
+    if not x:
+        return None, used_row_index_fallback
+
+    return {
+        "name": f"Exp {experiment_index} V",
+        "experimentIndex": experiment_index,
+        "x": x,
+        "y": y,
+        "source": "detail",
+    }, used_row_index_fallback
+
+
+def _volume_series_from_worksheet(
+    df,
+    *,
+    experiment_index: int,
+    x_values,
+    row_range: tuple[int, int],
+) -> dict[str, Any] | None:
+    col = f"V(uL).{experiment_index}"
+    if col not in df.columns:
+        return None
+
+    start = row_range[0] - 1
+    end = row_range[1]
+    volume_values = df[col].iloc[start:end]
+    x: list[float | int] = []
+    y: list[float] = []
+
+    for x_value_raw, volume_raw in zip(x_values.tolist(), volume_values.tolist()):
+        x_value = _finite_or_none(x_value_raw)
+        volume = _positive_float_or_none(volume_raw)
+        if x_value is None or volume is None:
+            continue
+        x.append(x_value)
+        y.append(volume)
+
+    if not x:
+        return None
+
+    return {
+        "name": f"Exp {experiment_index} V",
+        "experimentIndex": experiment_index,
+        "x": x,
+        "y": y,
+        "source": "worksheet",
+    }
+
+
+def _volume_overlay_payload(source_path: str, df, dataset) -> dict[str, Any]:
+    warnings: list[str] = []
+    detail: dict[int, list[dict[str, Any]]] = {}
+    if source_path.lower().endswith(".csv"):
+        try:
+            detail = parse_famas_measurement_detail_volumes(source_path)
+        except Exception:
+            detail = {}
+
+    series: list[dict[str, Any]] = []
+    used_row_index_fallback = False
+    for experiment_index in dataset.selected_experiment_indexes or []:
+        volume_series = None
+        if experiment_index in detail:
+            volume_series, used_fallback = _volume_series_from_detail(
+                detail[experiment_index],
+                experiment_index=experiment_index,
+                x_values=dataset.x_values,
+                row_range=dataset.row_range,
+            )
+            used_row_index_fallback = used_row_index_fallback or used_fallback
+        if volume_series is None:
+            volume_series = _volume_series_from_worksheet(
+                df,
+                experiment_index=experiment_index,
+                x_values=dataset.x_values,
+                row_range=dataset.row_range,
+            )
+        if volume_series is not None:
+            series.append(volume_series)
+
+    if used_row_index_fallback:
+        warnings.append("Droplet volume x-values used detail row indexes where time values were unavailable.")
+    if not series:
+        warnings.append("Droplet volume data was not found.")
+
+    return {
+        "yLabel": "Droplet volume, V (μL)",
+        "series": series,
+        "warnings": warnings,
+    }
 
 
 def get_runtime_metadata() -> dict[str, Any]:
@@ -97,7 +259,7 @@ def analyze_plot_file(
     avg_only: bool,
     show_original_with_avg: bool = False,
 ) -> dict[str, Any]:
-    dataset = _load_plot_dataset(
+    df, dataset = _prepare_plot_dataframe_and_dataset(
         source_path,
         start_text,
         end_text,
@@ -117,7 +279,12 @@ def analyze_plot_file(
         "expTag": dataset.exp_tag,
         "rowRange": list(dataset.row_range),
         "defaultExpRange": dataset.default_exp_range,
-        "series": _series_payload(dataset.x_values, dataset.plot_values),
+        "series": _series_payload(
+            dataset.x_values,
+            dataset.plot_values,
+            dataset.plot_experiment_indexes,
+        ),
+        "volumeOverlay": _volume_overlay_payload(source_path, df, dataset),
         "summary": {
             "rows": int(len(dataset.x_values)),
             "seriesCount": int(len(dataset.plot_values.columns)),
@@ -184,7 +351,11 @@ def extract_plot_trend(
             "parameters": {key: _finite_or_none(value) for key, value in result.parameters.items()},
         },
         "summaryText": result.summary_text,
-        "series": _series_payload(dataset.x_values, result.trend_values),
+        "series": _series_payload(
+            dataset.x_values,
+            result.trend_values,
+            dataset.y_experiment_indexes,
+        ),
     }
 
 

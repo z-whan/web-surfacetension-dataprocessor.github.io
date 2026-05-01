@@ -7,11 +7,11 @@
   const PALETTE = ["#2f5d8a", "#8a4f2f", "#3c7a5b", "#7a3c68", "#6a6a2f", "#2f6e73"];
 
   function baseLayout(options) {
-    return {
+    const layout = {
       title: { text: options.title, font: { size: 18, family: FONT_FAMILY, color: TEXT_COLOR } },
       paper_bgcolor: PAPER_COLOR,
       plot_bgcolor: PAPER_COLOR,
-      margin: { l: 64, r: 24, t: 56, b: 64 },
+      margin: { l: 64, r: options.secondaryY ? 76 : 24, t: 56, b: 64 },
       font: { family: FONT_FAMILY, color: TEXT_COLOR, size: 13 },
       xaxis: {
         title: { text: options.xLabel },
@@ -41,6 +41,19 @@
         x: 0,
       },
     };
+
+    if (options.secondaryY) {
+      layout.yaxis2 = {
+        title: { text: options.secondaryYLabel || "Droplet volume, V (μL)" },
+        overlaying: "y",
+        side: "right",
+        zeroline: false,
+        linecolor: "#999999",
+        showgrid: false,
+      };
+    }
+
+    return layout;
   }
 
   function appendFiniteValues(values, seriesList) {
@@ -102,6 +115,8 @@
   }
 
   function buildRawTrace(series, index) {
+    const experimentIndex = Number(series.experimentIndex);
+    const legendgroup = Number.isInteger(experimentIndex) ? `exp-${experimentIndex}` : undefined;
     return {
       type: "scatter",
       mode: "lines",
@@ -109,10 +124,13 @@
       x: series.x,
       y: series.y,
       line: { width: 1.8, color: PALETTE[index % PALETTE.length] },
+      legendgroup,
     };
   }
 
   function buildTrendTrace(series, index) {
+    const experimentIndex = Number(series.experimentIndex);
+    const legendgroup = Number.isInteger(experimentIndex) ? `exp-${experimentIndex}` : undefined;
     return {
       type: "scatter",
       mode: "lines",
@@ -124,6 +142,44 @@
         color: PALETTE[index % PALETTE.length],
         dash: "dash",
       },
+      legendgroup,
+    };
+  }
+
+  function matchingRawSeriesIndex(rawSeries, experimentIndex, fallbackIndex) {
+    const target = Number(experimentIndex);
+    if (Number.isInteger(target)) {
+      const index = rawSeries.findIndex((series) => Number(series.experimentIndex) === target);
+      if (index >= 0) {
+        return index;
+      }
+    }
+    return fallbackIndex;
+  }
+
+  function buildVolumeTrace(series, index, rawSeries) {
+    const colorIndex = matchingRawSeriesIndex(rawSeries, series.experimentIndex, index);
+    const experimentIndex = Number(series.experimentIndex);
+    const legendgroup = Number.isInteger(experimentIndex) ? `exp-${experimentIndex}` : undefined;
+    const experimentLabel = Number.isInteger(experimentIndex) ? `Exp ${experimentIndex}` : series.name;
+    return {
+      type: "scatter",
+      mode: "lines",
+      name: series.name || `${experimentLabel} V`,
+      x: series.x,
+      y: series.y,
+      yaxis: "y2",
+      line: {
+        width: 1.2,
+        color: PALETTE[colorIndex % PALETTE.length],
+        dash: "dot",
+      },
+      opacity: 0.58,
+      legendgroup,
+      hovertemplate:
+        `${domUtils.escapeHtml(experimentLabel)}<br>` +
+        "Time: %{x}<br>" +
+        "V: %{y:.6g} μL<extra></extra>",
     };
   }
 
@@ -131,6 +187,11 @@
     const opts = options || {};
     const trendPayload = opts.trendPayload || null;
     const showRaw = typeof opts.showRaw === "boolean" ? opts.showRaw : true;
+    const showVolumeOverlay = Boolean(opts.showVolumeOverlay);
+    const volumeOverlay =
+      showVolumeOverlay && rawPayload.volumeOverlay && Array.isArray(rawPayload.volumeOverlay.series)
+        ? rawPayload.volumeOverlay
+        : null;
     const traces = [];
 
     if (!trendPayload || showRaw) {
@@ -151,7 +212,14 @@
       });
     }
 
+    if (volumeOverlay) {
+      volumeOverlay.series.forEach((series, index) => {
+        traces.push(buildVolumeTrace(series, index, rawPayload.series));
+      });
+    }
+
     const yRange = resolveTimeSeriesYRange(rawPayload, opts);
+    const hasVolumeTraces = Boolean(volumeOverlay && volumeOverlay.series.length);
 
     await Plotly.react(
       target,
@@ -163,6 +231,8 @@
         xScale: "linear",
         yScale: "linear",
         yRange,
+        secondaryY: hasVolumeTraces,
+        secondaryYLabel: rawPayload.volumeOverlay && rawPayload.volumeOverlay.yLabel,
       }),
       { responsive: true, displaylogo: false }
     );

@@ -17,6 +17,9 @@ class PlotDataset:
     exp_tag: str
     row_range: tuple[int, int]
     default_exp_range: str | None = None
+    selected_experiment_indexes: list[int] | None = None
+    y_experiment_indexes: list[int | None] | None = None
+    plot_experiment_indexes: list[int | None] | None = None
 
 
 _IT_PATTERN = re.compile(r"^I\.?T\.?\s*\(mN\s*/\s*m\)(?:\.(\d+))?$", re.IGNORECASE)
@@ -268,6 +271,9 @@ def prepare_plot_dataset(
     ordered_it_cols, avg_col = _extract_it_columns_and_avg(df.columns)
     n_experiments = len(ordered_it_cols)
     non_empty_indexes = detect_non_empty_experiments(df, ordered_it_cols)
+    selected_experiment_indexes: list[int] = []
+    y_experiment_indexes: list[int | None] = []
+    plot_experiment_indexes: list[int | None] = []
 
     default_range: str | None = None
 
@@ -280,6 +286,7 @@ def prepare_plot_dataset(
             selected_indexes = _filter_selected_non_empty_experiments(selected_indexes, non_empty_indexes)
             resolved_range_text = format_experiment_range(selected_indexes)
             default_range = resolved_range_text
+            selected_experiment_indexes = selected_indexes
             selected_cols = [ordered_it_cols[idx - 1] for idx in selected_indexes]
             selected_numeric = df[selected_cols].apply(
                 lambda series: pd.to_numeric(series, errors="coerce")
@@ -287,11 +294,13 @@ def prepare_plot_dataset(
             avg_label = f"Avg ({resolved_range_text})"
             avg_numeric = pd.DataFrame({avg_label: selected_numeric.mean(axis=1, skipna=True)})
             y_numeric = avg_numeric
+            y_experiment_indexes = [None]
             plot_numeric = (
                 pd.concat([selected_numeric, avg_numeric], axis=1)
                 if show_original_with_avg
                 else avg_numeric
             )
+            plot_experiment_indexes = selected_indexes + [None] if show_original_with_avg else [None]
             exp_tag = f"avg({resolved_range_text})"
         else:
             if avg_col is None:
@@ -299,19 +308,24 @@ def prepare_plot_dataset(
                     "Avg column not found (looked for names like 'Avg', 'Average', 'Mean', '平均')."
                 )
 
+            selected_experiment_indexes = non_empty_indexes
             avg_numeric = (
                 df[[avg_col]]
                 .apply(lambda series: pd.to_numeric(series, errors="coerce"))
                 .rename(columns={avg_col: "Avg"})
             )
             y_numeric = avg_numeric
-            if show_original_with_avg and n_experiments > 0:
-                selected_numeric = df[ordered_it_cols].apply(
+            y_experiment_indexes = [None]
+            if show_original_with_avg and selected_experiment_indexes:
+                selected_cols = [ordered_it_cols[idx - 1] for idx in selected_experiment_indexes]
+                selected_numeric = df[selected_cols].apply(
                     lambda series: pd.to_numeric(series, errors="coerce")
                 )
                 plot_numeric = pd.concat([selected_numeric, avg_numeric], axis=1)
+                plot_experiment_indexes = selected_experiment_indexes + [None]
             else:
                 plot_numeric = avg_numeric
+                plot_experiment_indexes = [None]
             exp_tag = "avg"
     else:
         if n_experiments == 0:
@@ -327,10 +341,13 @@ def prepare_plot_dataset(
         selected_indexes = _filter_selected_non_empty_experiments(selected_indexes, non_empty_indexes)
         resolved_range_text = format_experiment_range(selected_indexes)
         default_range = resolved_range_text
+        selected_experiment_indexes = selected_indexes
 
         selected_cols = [ordered_it_cols[idx - 1] for idx in selected_indexes]
         y_numeric = df[selected_cols].apply(lambda series: pd.to_numeric(series, errors="coerce"))
+        y_experiment_indexes = selected_indexes
         plot_numeric = y_numeric
+        plot_experiment_indexes = selected_indexes
         exp_tag = f"exp{resolved_range_text}"
 
     s, e, row_range = _resolve_row_bounds(x_raw, y_numeric, start_text, end_text)
@@ -349,4 +366,7 @@ def prepare_plot_dataset(
         exp_tag=exp_tag,
         row_range=row_range,
         default_exp_range=default_range,
+        selected_experiment_indexes=selected_experiment_indexes,
+        y_experiment_indexes=y_experiment_indexes,
+        plot_experiment_indexes=plot_experiment_indexes,
     )

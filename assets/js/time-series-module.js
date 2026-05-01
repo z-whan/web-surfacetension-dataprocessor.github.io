@@ -443,6 +443,7 @@
         noisePayload: null,
         qualityPayload: null,
         showRaw: true,
+        showVolumeOverlay: false,
         manualYRange: null,
       };
 
@@ -454,6 +455,7 @@
         plotExpRange: document.querySelector("#plot-exp-range"),
         plotAvgOnly: document.querySelector("#plot-avg-only"),
         plotAvgShowOriginal: document.querySelector("#plot-avg-show-original"),
+        plotVolumeOverlay: document.querySelector("#plot-volume-overlay"),
         plotAnalyze: document.querySelector("#plot-run"),
         plotMarkCompare: document.querySelector("#plot-mark-compare"),
         plotExport: document.querySelector("#plot-export"),
@@ -510,6 +512,7 @@
 
       this.dom.plotInput.addEventListener("change", () => this.handleFileSelection());
       this.dom.plotAvgOnly.addEventListener("change", () => this.handleAvgOnlyChange());
+      this.dom.plotVolumeOverlay.addEventListener("change", () => this.handleVolumeOverlayChange());
       this.dom.trendMethod.addEventListener("change", () => {
         renderParameterFields(this.dom.trendParams, TREND_METHODS[this.dom.trendMethod.value]);
       });
@@ -606,8 +609,10 @@
       this.state.noisePayload = null;
       this.state.qualityPayload = null;
       this.state.showRaw = true;
+      this.state.showVolumeOverlay = false;
       this.state.manualYRange = null;
       this.dom.showRawToggle.checked = true;
+      this.dom.plotVolumeOverlay.checked = false;
       this.dom.plotMeta.textContent = this.describeFile(this.state.file);
       this.dom.plotExport.disabled = true;
       this.dom.plotExportSvg.disabled = true;
@@ -631,6 +636,7 @@
       this.state.noisePayload = null;
       this.state.qualityPayload = null;
       this.state.showRaw = true;
+      this.state.showVolumeOverlay = false;
       this.state.manualYRange = null;
 
       this.dom.plotStart.value = "";
@@ -638,6 +644,7 @@
       this.dom.plotExpRange.value = "";
       this.dom.plotAvgOnly.checked = false;
       this.dom.plotAvgShowOriginal.checked = false;
+      this.dom.plotVolumeOverlay.checked = false;
       this.syncAvgOverlayOption();
 
       const defaultTrendMethod = Object.keys(TREND_METHODS)[0];
@@ -684,6 +691,14 @@
       this.state.showRaw = Boolean(this.dom.showRawToggle.checked);
       if (this.state.rawPayload) {
         this.renderCurrentPlot();
+      }
+    }
+
+    handleVolumeOverlayChange() {
+      this.state.showVolumeOverlay = Boolean(this.dom.plotVolumeOverlay.checked);
+      if (this.state.rawPayload) {
+        this.renderCurrentPlot();
+        this.renderVolumeOverlayStatus();
       }
     }
 
@@ -965,7 +980,9 @@
       this.dom.plotExport.disabled = false;
       this.dom.plotExportSvg.disabled = false;
       this.dom.plotSendPublication.disabled = false;
-      this.setStatus(`Rendered ${payload.summary.seriesCount} series from ${this.state.file.name}.`);
+      this.setStatus(this.volumeOverlayStatusText(
+        `Rendered ${payload.summary.seriesCount} series from ${this.state.file.name}.`
+      ));
     }
 
     async applyTrend() {
@@ -1000,7 +1017,9 @@
         this.dom.plotExport.disabled = false;
         this.dom.plotExportSvg.disabled = false;
         this.dom.plotSendPublication.disabled = false;
-        this.setStatus(`${trendPayload.method.label} applied to ${this.state.file.name}.`);
+        this.setStatus(this.volumeOverlayStatusText(
+          `${trendPayload.method.label} applied to ${this.state.file.name}.`
+        ));
       } finally {
         this.pyodideClient.removeFsFile(staged.fsPath);
       }
@@ -1074,7 +1093,9 @@
         this.dom.plotExportSvg.disabled = false;
         this.dom.plotSendPublication.disabled = false;
         await this.renderNoiseOutput(payload);
-        this.setStatus(`${payload.method.label} completed for ${this.state.file.name}.`);
+        this.setStatus(this.volumeOverlayStatusText(
+          `${payload.method.label} completed for ${this.state.file.name}.`
+        ));
       } finally {
         this.pyodideClient.removeFsFile(staged.fsPath);
       }
@@ -1199,6 +1220,29 @@
       );
     }
 
+    volumeOverlayStatusText(baseText) {
+      if (!this.state.showVolumeOverlay || !this.state.rawPayload) {
+        return baseText;
+      }
+
+      const overlay = this.state.rawPayload.volumeOverlay || {};
+      const warnings = Array.isArray(overlay.warnings) ? overlay.warnings : [];
+      const warningText = warnings.length ? ` ${warnings.join(" ")}` : "";
+      const volumeCount = Array.isArray(overlay.series) ? overlay.series.length : 0;
+      if (!volumeCount) {
+        return `${baseText} ${warningText || "Droplet volume data was not found."}`.trim();
+      }
+      return `${baseText} Added ${volumeCount} droplet volume reference trace${volumeCount === 1 ? "" : "s"}.${warningText}`;
+    }
+
+    renderVolumeOverlayStatus() {
+      this.setStatus(this.volumeOverlayStatusText(
+        this.state.file
+          ? `Rendered ${this.state.rawPayload.summary.seriesCount} series from ${this.state.file.name}.`
+          : "Rendered Time Series plot."
+      ));
+    }
+
     async renderCurrentPlot() {
       if (!this.state.rawPayload) {
         this.resetYRangeControls();
@@ -1215,6 +1259,7 @@
       await this.charts.renderTimeSeriesPlot(this.dom.plotCanvas, this.state.rawPayload, {
         trendPayload: this.state.trendPayload,
         showRaw: this.state.showRaw,
+        showVolumeOverlay: this.state.showVolumeOverlay,
         ySpanPercent: this.currentYSpanPercent(),
         // The slider remains an automatic span tool. Manual input boxes can
         // override the plotted range without forcing the slider to re-sync.

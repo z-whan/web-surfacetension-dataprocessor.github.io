@@ -17,6 +17,7 @@ from DataProcessor.services.plot_analysis import (  # noqa: E402
     first_data_cell_has_value,
     format_experiment_range,
 )
+from DataProcessor.services.dataframe_loader import parse_famas_measurement_detail_volumes  # noqa: E402
 from web_bridge import (  # noqa: E402
     analyze_cmc_files,
     analyze_plot_file,
@@ -30,6 +31,72 @@ from web_bridge import (  # noqa: E402
 class WebBridgeTests(unittest.TestCase):
     def _write_temp_csv(self, content: str) -> str:
         with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8") as handle:
+            handle.write(content)
+            return handle.name
+
+    def _write_famas_csv(
+        self,
+        *,
+        row_count: int = 5,
+        measured_experiments=(1,),
+        experiment_count: int = 2,
+        include_detail: bool = True,
+        include_main_volume: bool = True,
+        detail_zero_experiments=(),
+    ) -> str:
+        prefix = [""]
+        header = ["時間(ms)"]
+        for exp in range(1, experiment_count + 1):
+            prefix.append(str(exp))
+            header.append("I.T.(mN/m)")
+            if include_main_volume:
+                prefix.append(str(exp))
+                header.append("V(uL)")
+
+        rows = [["[WORKSHEET]"], prefix, header]
+        for row_index in range(1, row_count + 1):
+            row = [str(row_index * 1000)]
+            for exp in range(1, experiment_count + 1):
+                if exp in measured_experiments:
+                    row.append(str(70 + exp + row_index / 10))
+                    if include_main_volume:
+                        row.append(str(10 + exp + row_index / 100))
+                else:
+                    row.append("")
+                    if include_main_volume:
+                        row.append("")
+            rows.append(row)
+
+        if include_detail:
+            rows.extend([["[DETAIL]"], [
+                "行",
+                "列",
+                "I.T.(mN/m)",
+                "V(uL)",
+                "de(um)",
+            ]])
+            for row_index in range(1, row_count + 1):
+                for exp in range(1, experiment_count + 1):
+                    if exp in measured_experiments:
+                        volume = 11 + exp + row_index / 1000000
+                        surface_tension = 70 + exp + row_index / 1000
+                    elif exp in detail_zero_experiments:
+                        volume = 0
+                        surface_tension = 0
+                    else:
+                        volume = ""
+                        surface_tension = ""
+                    rows.append([
+                        str(row_index),
+                        str(exp),
+                        str(surface_tension),
+                        str(volume),
+                        "2500",
+                    ])
+            rows.extend([["[DETAIL]"], [], ["[EDGE]"], ["行", "列", "L1 x"], ["1", "1", "123"]])
+
+        content = "\n".join(",".join(str(cell) for cell in row) for row in rows) + "\n"
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="shift_jis") as handle:
             handle.write(content)
             return handle.name
 
@@ -47,6 +114,103 @@ class WebBridgeTests(unittest.TestCase):
             payload = analyze_plot_file(path, "", "", "", False)
             self.assertEqual(payload["summary"]["seriesCount"], 2)
             self.assertEqual(payload["rowRange"], [1, 3])
+        finally:
+            os.unlink(path)
+
+    def test_parse_famas_measurement_detail_volumes(self):
+        path = self._write_famas_csv(row_count=5, measured_experiments=(1, 2), experiment_count=2)
+
+        try:
+            detail = parse_famas_measurement_detail_volumes(path)
+            self.assertIn(1, detail)
+            self.assertIn(2, detail)
+            self.assertEqual(detail[1][0]["rowIndex"], 1)
+            self.assertEqual(detail[1][0]["experimentIndex"], 1)
+            self.assertAlmostEqual(detail[1][0]["volume"], 12.000001)
+            self.assertEqual(detail[2][0]["rowIndex"], 1)
+            self.assertAlmostEqual(detail[2][0]["volume"], 13.000001)
+        finally:
+            os.unlink(path)
+
+    def test_analyze_plot_file_volume_overlay_variable_duration(self):
+        path = self._write_famas_csv(row_count=6, measured_experiments=(1,), experiment_count=1)
+
+        try:
+            payload = analyze_plot_file(path, "", "", "1", False)
+            overlay = payload["volumeOverlay"]
+            self.assertEqual(payload["summary"]["rows"], 6)
+            self.assertEqual(len(overlay["series"]), 1)
+            self.assertEqual(len(overlay["series"][0]["x"]), 6)
+            self.assertEqual(overlay["series"][0]["source"], "detail")
+            self.assertEqual(overlay["series"][0]["x"][0], 1000)
+        finally:
+            os.unlink(path)
+
+    def test_analyze_plot_file_volume_overlay_skips_empty_experiments(self):
+        path = self._write_famas_csv(
+            row_count=5,
+            measured_experiments=(1, 2, 3, 4),
+            experiment_count=10,
+            detail_zero_experiments=(5, 6, 7, 8, 9, 10),
+        )
+
+        try:
+            payload = analyze_plot_file(path, "", "", "1-10", False)
+            overlay = payload["volumeOverlay"]
+            self.assertEqual(payload["defaultExpRange"], "1-4")
+            self.assertEqual(payload["summary"]["seriesCount"], 4)
+            self.assertEqual([series["experimentIndex"] for series in overlay["series"]], [1, 2, 3, 4])
+        finally:
+            os.unlink(path)
+
+    def test_detail_zeros_do_not_classify_experiments_as_measured(self):
+        path = self._write_famas_csv(
+            row_count=5,
+            measured_experiments=(),
+            experiment_count=2,
+            detail_zero_experiments=(1, 2),
+        )
+
+        try:
+            with self.assertRaisesRegex(
+                Exception,
+                "No non-empty experiments were detected in the selected data.",
+            ):
+                analyze_plot_file(path, "", "", "1-2", False)
+        finally:
+            os.unlink(path)
+
+    def test_analyze_plot_file_volume_overlay_falls_back_to_main_table_volume(self):
+        path = self._write_famas_csv(
+            row_count=5,
+            measured_experiments=(1,),
+            experiment_count=1,
+            include_detail=False,
+        )
+
+        try:
+            payload = analyze_plot_file(path, "", "", "1", False)
+            overlay = payload["volumeOverlay"]
+            self.assertEqual(len(overlay["series"]), 1)
+            self.assertEqual(overlay["series"][0]["source"], "worksheet")
+            self.assertEqual(overlay["warnings"], [])
+        finally:
+            os.unlink(path)
+
+    def test_analyze_plot_file_volume_overlay_warns_when_missing(self):
+        path = self._write_famas_csv(
+            row_count=5,
+            measured_experiments=(1,),
+            experiment_count=1,
+            include_detail=False,
+            include_main_volume=False,
+        )
+
+        try:
+            payload = analyze_plot_file(path, "", "", "1", False)
+            self.assertEqual(payload["summary"]["seriesCount"], 1)
+            self.assertEqual(payload["volumeOverlay"]["series"], [])
+            self.assertIn("Droplet volume data was not found.", payload["volumeOverlay"]["warnings"])
         finally:
             os.unlink(path)
 

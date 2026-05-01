@@ -37,6 +37,16 @@ traces and layouts for time-series plots, noise/analysis plots, compare plots,
 CMC plots, and image export. Controllers pass already-shaped payloads into this
 layer.
 
+## Publication Plot Styling
+
+`assets/js/publication-plot.js` receives copied Plotly figures from analysis
+tabs and keeps the imported figure payload separate from the editable
+publication copy. Figure presets change presentation layout values such as
+width, height, font size, axis line width, tick labels, and legend placement.
+Style templates adjust layout polish and trace styling defaults on the copied
+figure only; they do not alter source analysis data or the upstream analysis
+pipeline.
+
 ## Pyodide Bridge
 
 `assets/js/pyodide-client.js` initializes Pyodide, installs configured Python

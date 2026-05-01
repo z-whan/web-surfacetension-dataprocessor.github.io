@@ -153,10 +153,13 @@
       sourceType: safeString(value.sourceType, "unknown"),
       sourceTitle: safeString(value.sourceTitle, ""),
       filenameBase: safeString(value.filenameBase, "publication-plot"),
+      figurePayload: cloneJson(isPlainObject(value.figurePayload) ? value.figurePayload : {}),
       data,
       layout: cloneJson(isPlainObject(value.layout) ? value.layout : {}),
       config: cloneJson(isPlainObject(value.config) ? value.config : {}),
       exportSettings: cloneJson(isPlainObject(value.exportSettings) ? value.exportSettings : {}),
+      defaultTraceStyles: cloneJson(Array.isArray(value.defaultTraceStyles) ? value.defaultTraceStyles : []),
+      styleMeta: cloneJson(isPlainObject(value.styleMeta) ? value.styleMeta : {}),
     };
   }
 

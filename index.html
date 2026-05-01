@@ -520,6 +520,40 @@
                 <div class="info-box" data-publication-status>
                   No figure loaded yet. Send a chart from an analysis tab.
                 </div>
+                <div class="publication-style-panel">
+                  <div class="form-grid">
+                    <div class="field">
+                      <label for="publication-figure-preset">Figure Preset</label>
+                      <select id="publication-figure-preset" disabled>
+                        <option value="">choose preset</option>
+                        <option value="single-column">Single Column</option>
+                        <option value="double-column">Double Column</option>
+                        <option value="presentation">Presentation</option>
+                        <option value="square">Square</option>
+                        <option value="wide">Wide</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label for="publication-style-template">Style Template</label>
+                      <select id="publication-style-template" disabled>
+                        <option value="">choose template</option>
+                        <option value="clean">Clean</option>
+                        <option value="dense">Dense Data</option>
+                        <option value="large-font">Large Font</option>
+                        <option value="minimal">Minimal</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="publication-style-feedback" data-publication-active-style>
+                    Preset: none. Template: none.
+                  </div>
+                  <div class="publication-style-warning" data-publication-style-warning hidden></div>
+                  <div class="button-row">
+                    <button id="publication-undo-style" class="ghost-button compact-button" type="button" disabled>
+                      Undo Style Change
+                    </button>
+                  </div>
+                </div>
                 <div class="field">
                   <label for="publication-title">Figure Title</label>
                   <input id="publication-title" type="text" />
@@ -627,6 +661,36 @@
 
             <div class="field-card">
               <h3>Traces</h3>
+              <div class="trace-batch-controls">
+                <div class="form-grid">
+                  <div class="field">
+                    <label for="publication-batch-line-width">All Line Width</label>
+                    <input id="publication-batch-line-width" type="number" min="0" max="20" step="0.2" value="2" disabled />
+                  </div>
+                  <div class="field">
+                    <label for="publication-batch-marker-size">All Marker Size</label>
+                    <input id="publication-batch-marker-size" type="number" min="0" max="40" step="0.5" value="6" disabled />
+                  </div>
+                  <div class="field">
+                    <label for="publication-batch-opacity">All Opacity</label>
+                    <input id="publication-batch-opacity" type="number" min="0" max="1" step="0.05" value="1" disabled />
+                  </div>
+                </div>
+                <div class="button-row">
+                  <button id="publication-apply-line-width" class="ghost-button compact-button" type="button" disabled>
+                    Apply Line Width
+                  </button>
+                  <button id="publication-apply-marker-size" class="ghost-button compact-button" type="button" disabled>
+                    Apply Marker Size
+                  </button>
+                  <button id="publication-apply-opacity" class="ghost-button compact-button" type="button" disabled>
+                    Apply Opacity
+                  </button>
+                  <button id="publication-reset-trace-styles" class="ghost-button compact-button" type="button" disabled>
+                    Reset Trace Styles
+                  </button>
+                </div>
+              </div>
               <div class="trace-editor-list" data-publication-traces>
                 <div class="empty-state">No traces loaded.</div>
               </div>

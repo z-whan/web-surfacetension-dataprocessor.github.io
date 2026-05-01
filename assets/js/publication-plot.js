@@ -8,6 +8,179 @@
   const DEFAULT_AXIS_LINE_WIDTH = 1;
   const FALLBACK_TRACE_COLOR = "#2f5d8a";
   const LINE_DASHES = ["solid", "dash", "dot", "dashdot"];
+  const FIGURE_PRESETS = {
+    "single-column": {
+      label: "Single Column",
+      width: 720,
+      height: 520,
+      fontSize: 13,
+      tickFontSize: 11,
+      axisLineWidth: 1,
+      showLegend: true,
+      legendFontSize: 10,
+      legendPosition: "top-right",
+    },
+    "double-column": {
+      label: "Double Column",
+      width: 1400,
+      height: 900,
+      fontSize: 14,
+      tickFontSize: 12,
+      axisLineWidth: 1,
+      showLegend: true,
+      legendFontSize: 12,
+      legendPosition: "outside-right",
+    },
+    presentation: {
+      label: "Presentation",
+      width: 1600,
+      height: 900,
+      fontSize: 22,
+      tickFontSize: 18,
+      axisLineWidth: 2,
+      showLegend: true,
+      legendFontSize: 18,
+      legendPosition: "top-right",
+    },
+    square: {
+      label: "Square",
+      width: 900,
+      height: 900,
+      fontSize: 15,
+      tickFontSize: 13,
+      axisLineWidth: 1.2,
+      showLegend: true,
+      legendFontSize: 12,
+      legendPosition: "top-right",
+    },
+    wide: {
+      label: "Wide",
+      width: 1800,
+      height: 720,
+      fontSize: 15,
+      tickFontSize: 12,
+      axisLineWidth: 1,
+      showLegend: true,
+      legendFontSize: 12,
+      legendPosition: "outside-right",
+    },
+  };
+  const STYLE_TEMPLATES = {
+    clean: {
+      label: "Clean",
+      controls: {
+        fontSize: 14,
+        tickFontSize: 12,
+        axisLineWidth: 1,
+        showLegend: true,
+        legendFontSize: 12,
+        legendPosition: "top-right",
+      },
+      layout: {
+        "paper_bgcolor": "#ffffff",
+        "plot_bgcolor": "#ffffff",
+        "margin.l": 80,
+        "margin.r": 40,
+        "margin.t": 70,
+        "margin.b": 70,
+        "xaxis.showgrid": false,
+        "yaxis.showgrid": true,
+        "xaxis.zeroline": false,
+        "yaxis.zeroline": false,
+      },
+      traces: {
+        lineWidth: 2,
+        markerSize: 6,
+        opacity: 1,
+      },
+    },
+    dense: {
+      label: "Dense Data",
+      controls: {
+        fontSize: 12,
+        tickFontSize: 10,
+        axisLineWidth: 0.8,
+        showLegend: true,
+        legendFontSize: 10,
+        legendPosition: "outside-right",
+      },
+      layout: {
+        "paper_bgcolor": "#ffffff",
+        "plot_bgcolor": "#ffffff",
+        "margin.l": 72,
+        "margin.r": 120,
+        "margin.t": 52,
+        "margin.b": 62,
+        "xaxis.showgrid": true,
+        "yaxis.showgrid": true,
+        "xaxis.gridcolor": "#e5e7eb",
+        "yaxis.gridcolor": "#e5e7eb",
+        "xaxis.zeroline": false,
+        "yaxis.zeroline": false,
+      },
+      traces: {
+        lineWidth: 1.2,
+        markerSize: 4,
+        opacity: 0.78,
+      },
+    },
+    "large-font": {
+      label: "Large Font",
+      controls: {
+        fontSize: 20,
+        tickFontSize: 17,
+        axisLineWidth: 1.8,
+        showLegend: true,
+        legendFontSize: 17,
+        legendPosition: "top-right",
+      },
+      layout: {
+        "paper_bgcolor": "#ffffff",
+        "plot_bgcolor": "#ffffff",
+        "margin.l": 100,
+        "margin.r": 60,
+        "margin.t": 92,
+        "margin.b": 92,
+        "xaxis.showgrid": false,
+        "yaxis.showgrid": true,
+        "xaxis.zeroline": false,
+        "yaxis.zeroline": false,
+      },
+      traces: {
+        lineWidth: 3,
+        markerSize: 9,
+        opacity: 1,
+      },
+    },
+    minimal: {
+      label: "Minimal",
+      controls: {
+        fontSize: 13,
+        tickFontSize: 11,
+        axisLineWidth: 0,
+        showLegend: false,
+        legendFontSize: 11,
+        legendPosition: "top-right",
+      },
+      layout: {
+        "paper_bgcolor": "#ffffff",
+        "plot_bgcolor": "#ffffff",
+        "margin.l": 64,
+        "margin.r": 28,
+        "margin.t": 48,
+        "margin.b": 56,
+        "xaxis.showgrid": false,
+        "yaxis.showgrid": false,
+        "xaxis.zeroline": false,
+        "yaxis.zeroline": false,
+      },
+      traces: {
+        lineWidth: 2,
+        markerSize: 5,
+        opacity: 0.9,
+      },
+    },
+  };
 
   function deepCopy(value) {
     if (value === null || typeof value !== "object") {
@@ -132,6 +305,53 @@
     return trace.type === "scatter" || Boolean(trace.marker) || mode.includes("markers");
   }
 
+  function createEmptyFigurePayload() {
+    return {
+      data: [],
+      layout: {},
+      config: { responsive: true, displaylogo: false, editable: false },
+    };
+  }
+
+  function createStyleMeta(input) {
+    return {
+      currentPreset: input && typeof input.currentPreset === "string" ? input.currentPreset : "",
+      currentTemplate: input && typeof input.currentTemplate === "string" ? input.currentTemplate : "",
+      manualLayoutEdited: Boolean(input && input.manualLayoutEdited),
+      presetModified: Boolean(input && input.presetModified),
+      templateModified: Boolean(input && input.templateModified),
+    };
+  }
+
+  function cloneTraceStyles(data) {
+    return (Array.isArray(data) ? data : []).map((trace) => ({
+      line: deepCopy(trace && trace.line ? trace.line : null),
+      marker: deepCopy(trace && trace.marker ? trace.marker : null),
+      opacity: trace && Object.prototype.hasOwnProperty.call(trace, "opacity") ? trace.opacity : null,
+    }));
+  }
+
+  function restoreTraceStyles(trace, style) {
+    if (!trace || !style) {
+      return;
+    }
+    if (style.line) {
+      trace.line = deepCopy(style.line);
+    } else {
+      delete trace.line;
+    }
+    if (style.marker) {
+      trace.marker = deepCopy(style.marker);
+    } else {
+      delete trace.marker;
+    }
+    if (style.opacity === null || typeof style.opacity === "undefined") {
+      delete trace.opacity;
+    } else {
+      trace.opacity = style.opacity;
+    }
+  }
+
   function buildTraceInputField(index, labelText, fieldName, inputType, value, attrs) {
     const inputId = `publication-trace-${fieldName}-${index}`;
     const input = domUtils.el("input", {
@@ -184,6 +404,7 @@
         sourceType: "unknown",
         sourceTitle: "",
         filenameBase: "publication-plot",
+        figurePayload: createEmptyFigurePayload(),
         data: [],
         layout: {},
         config: { responsive: true, displaylogo: false, editable: false },
@@ -191,11 +412,19 @@
           width: DEFAULT_WIDTH,
           height: DEFAULT_HEIGHT,
         },
+        defaultTraceStyles: [],
+        styleMeta: createStyleMeta(),
       };
+      this.styleHistory = [];
 
       this.dom = {
         canvas: document.querySelector("#publication-canvas"),
         status: document.querySelector("[data-publication-status]"),
+        figurePreset: document.querySelector("#publication-figure-preset"),
+        styleTemplate: document.querySelector("#publication-style-template"),
+        activeStyle: document.querySelector("[data-publication-active-style]"),
+        styleWarning: document.querySelector("[data-publication-style-warning]"),
+        undoStyle: document.querySelector("#publication-undo-style"),
         title: document.querySelector("#publication-title"),
         width: document.querySelector("#publication-width"),
         height: document.querySelector("#publication-height"),
@@ -215,6 +444,13 @@
         legendX: document.querySelector("#publication-legend-x"),
         legendY: document.querySelector("#publication-legend-y"),
         traceList: document.querySelector("[data-publication-traces]"),
+        batchLineWidth: document.querySelector("#publication-batch-line-width"),
+        applyLineWidth: document.querySelector("#publication-apply-line-width"),
+        batchMarkerSize: document.querySelector("#publication-batch-marker-size"),
+        applyMarkerSize: document.querySelector("#publication-apply-marker-size"),
+        batchOpacity: document.querySelector("#publication-batch-opacity"),
+        applyOpacity: document.querySelector("#publication-apply-opacity"),
+        resetTraceStyles: document.querySelector("#publication-reset-trace-styles"),
         exportPng: document.querySelector("#publication-export-png"),
         exportSvg: document.querySelector("#publication-export-svg"),
       };
@@ -222,6 +458,7 @@
 
     bind() {
       this.bindLayoutControls();
+      this.bindPresetControls();
       this.bindTraceControls();
       this.dom.resetAxes.addEventListener("click", () => this.resetAxisAutorange());
       this.dom.exportPng.addEventListener("click", () => this.exportFigure("png"));
@@ -237,10 +474,74 @@
       const enabled = this.hasFigure();
       this.dom.exportPng.disabled = !enabled;
       this.dom.exportSvg.disabled = !enabled;
+      [
+        this.dom.figurePreset,
+        this.dom.styleTemplate,
+        this.dom.undoStyle,
+        this.dom.batchLineWidth,
+        this.dom.applyLineWidth,
+        this.dom.batchMarkerSize,
+        this.dom.applyMarkerSize,
+        this.dom.batchOpacity,
+        this.dom.applyOpacity,
+        this.dom.resetTraceStyles,
+      ].forEach((element) => {
+        if (element) {
+          element.disabled = !enabled || (element === this.dom.undoStyle && !this.styleHistory.length);
+        }
+      });
     }
 
     setPublicationStatus(message) {
       this.dom.status.textContent = message;
+    }
+
+    setStyleWarning(message) {
+      if (!this.dom.styleWarning) {
+        return;
+      }
+      this.dom.styleWarning.textContent = message || "";
+      this.dom.styleWarning.hidden = !message;
+    }
+
+    updateStyleFeedback() {
+      const meta = this.state.styleMeta || createStyleMeta();
+      const preset = FIGURE_PRESETS[meta.currentPreset];
+      const template = STYLE_TEMPLATES[meta.currentTemplate];
+      const presetLabel = preset
+        ? `Preset: ${preset.label}${meta.presetModified ? " (modified)" : ""}`
+        : "Preset: none";
+      const templateLabel = template
+        ? `Template: ${template.label}${meta.templateModified ? " (modified)" : ""}`
+        : "Template: none";
+
+      if (this.dom.figurePreset) {
+        this.dom.figurePreset.value = meta.currentPreset || "";
+      }
+      if (this.dom.styleTemplate) {
+        this.dom.styleTemplate.value = meta.currentTemplate || "";
+      }
+      if (this.dom.activeStyle) {
+        this.dom.activeStyle.textContent = `${presetLabel}. ${templateLabel}.`;
+      }
+      this.syncEnabledState();
+    }
+
+    pushStyleSnapshot(label) {
+      if (!this.hasFigure()) {
+        return;
+      }
+      this.styleHistory.push({
+        label,
+        data: deepCopy(this.state.data),
+        layout: deepCopy(this.state.layout),
+        exportSettings: deepCopy(this.state.exportSettings),
+        styleMeta: deepCopy(this.state.styleMeta),
+      });
+      if (this.styleHistory.length > 8) {
+        this.styleHistory.shift();
+      }
+      this.syncEnabledState();
     }
 
     async copyFromPlot(plotElementOrId, metadata) {
@@ -255,8 +556,13 @@
 
       const meta = metadata || {};
       const layout = deepCopy(source.layout || {});
-      const copiedData = deepCopy(data);
       const copiedConfig = deepCopy(meta.config || { responsive: true, displaylogo: false, editable: false });
+      const figurePayload = {
+        data: deepCopy(data),
+        layout: deepCopy(source.layout || {}),
+        config: deepCopy(copiedConfig),
+      };
+      const copiedData = deepCopy(figurePayload.data);
       const sourceRect = source.getBoundingClientRect ? source.getBoundingClientRect() : null;
       const width = toFiniteNumber(layout.width, Math.round(sourceRect && sourceRect.width ? sourceRect.width : DEFAULT_WIDTH));
       const height = toFiniteNumber(layout.height, Math.round(sourceRect && sourceRect.height ? sourceRect.height : DEFAULT_HEIGHT));
@@ -265,6 +571,7 @@
         sourceType: meta.sourceType || "unknown",
         sourceTitle: meta.sourceTitle || getTitleText(layout.title) || "Plot",
         filenameBase: meta.filenameBase || "publication-plot",
+        figurePayload,
         data: copiedData,
         layout: {
           ...layout,
@@ -279,13 +586,18 @@
           editable: false,
         },
         exportSettings: { width, height },
+        defaultTraceStyles: cloneTraceStyles(copiedData),
+        styleMeta: createStyleMeta(),
       };
+      this.styleHistory = [];
 
       this.activateTab("publication");
       this.syncControlsFromFigure();
       this.renderTraceControls();
       await this.render();
       this.syncEnabledState();
+      this.setStyleWarning("");
+      this.updateStyleFeedback();
       this.setPublicationStatus(`Figure copied from ${this.state.sourceTitle}.`);
       this.setStatus(`Figure copied from ${this.state.sourceTitle}.`);
       return true;
@@ -343,15 +655,39 @@
           if (event.target === this.dom.legendX || event.target === this.dom.legendY) {
             this.dom.legendPosition.value = "custom";
           }
-          this.applyLayoutControls();
+          this.applyLayoutControls({ userInitiated: true });
         });
         element.addEventListener("change", (event) => {
           if (event.target === this.dom.legendX || event.target === this.dom.legendY) {
             this.dom.legendPosition.value = "custom";
           }
-          this.applyLayoutControls();
+          this.applyLayoutControls({ userInitiated: true });
         });
       });
+    }
+
+    bindPresetControls() {
+      if (this.dom.figurePreset) {
+        this.dom.figurePreset.addEventListener("change", () => this.applyFigurePreset(this.dom.figurePreset.value));
+      }
+      if (this.dom.styleTemplate) {
+        this.dom.styleTemplate.addEventListener("change", () => this.applyStyleTemplate(this.dom.styleTemplate.value));
+      }
+      if (this.dom.undoStyle) {
+        this.dom.undoStyle.addEventListener("click", () => this.undoStyleChange());
+      }
+      if (this.dom.applyLineWidth) {
+        this.dom.applyLineWidth.addEventListener("click", () => this.applyBatchTraceStyle("line-width"));
+      }
+      if (this.dom.applyMarkerSize) {
+        this.dom.applyMarkerSize.addEventListener("click", () => this.applyBatchTraceStyle("marker-size"));
+      }
+      if (this.dom.applyOpacity) {
+        this.dom.applyOpacity.addEventListener("click", () => this.applyBatchTraceStyle("opacity"));
+      }
+      if (this.dom.resetTraceStyles) {
+        this.dom.resetTraceStyles.addEventListener("click", () => this.resetAllTraceStyles());
+      }
     }
 
     buildLayoutUpdate() {
@@ -417,14 +753,208 @@
       update[`${axisName}.autorange`] = false;
     }
 
-    async applyLayoutControls() {
+    async applyLayoutControls(options) {
       if (!this.hasFigure()) {
         return;
       }
       const update = this.buildLayoutUpdate();
       Object.keys(update).forEach((path) => setNested(this.state.layout, path, update[path]));
       await Plotly.relayout(this.dom.canvas, update);
+      if (!options || options.userInitiated !== false) {
+        this.state.styleMeta.manualLayoutEdited = true;
+        this.state.styleMeta.presetModified = Boolean(this.state.styleMeta.currentPreset);
+        this.state.styleMeta.templateModified = Boolean(this.state.styleMeta.currentTemplate);
+        this.setStyleWarning("");
+        this.updateStyleFeedback();
+      }
       this.setPublicationStatus("Publication plot updated.");
+    }
+
+    applyStyleControlValues(values) {
+      if (!values) {
+        return;
+      }
+      if (Object.prototype.hasOwnProperty.call(values, "width")) {
+        this.dom.width.value = values.width;
+      }
+      if (Object.prototype.hasOwnProperty.call(values, "height")) {
+        this.dom.height.value = values.height;
+      }
+      if (Object.prototype.hasOwnProperty.call(values, "fontSize")) {
+        this.dom.fontSize.value = values.fontSize;
+      }
+      if (Object.prototype.hasOwnProperty.call(values, "tickFontSize")) {
+        this.dom.tickFontSize.value = values.tickFontSize;
+      }
+      if (Object.prototype.hasOwnProperty.call(values, "axisLineWidth")) {
+        this.dom.axisLineWidth.value = values.axisLineWidth;
+      }
+      if (Object.prototype.hasOwnProperty.call(values, "showLegend")) {
+        this.dom.showLegend.checked = values.showLegend;
+      }
+      if (Object.prototype.hasOwnProperty.call(values, "legendFontSize")) {
+        this.dom.legendFontSize.value = values.legendFontSize;
+      }
+      if (values.legendPosition) {
+        this.dom.legendPosition.value = values.legendPosition;
+        const legendPreset = legendPresetToLayout(values.legendPosition);
+        if (legendPreset) {
+          this.dom.legendX.value = legendPreset.x;
+          this.dom.legendY.value = legendPreset.y;
+        }
+      }
+    }
+
+    async applyFigurePreset(presetKey) {
+      const preset = FIGURE_PRESETS[presetKey];
+      if (!preset || !this.hasFigure()) {
+        this.updateStyleFeedback();
+        return;
+      }
+
+      const overwritesManualValues = this.state.styleMeta.manualLayoutEdited || this.state.styleMeta.presetModified;
+      this.pushStyleSnapshot("figure preset");
+      this.applyStyleControlValues(preset);
+      await this.applyLayoutControls({ userInitiated: false });
+      this.state.styleMeta.currentPreset = presetKey;
+      this.state.styleMeta.manualLayoutEdited = false;
+      this.state.styleMeta.presetModified = false;
+      this.state.styleMeta.templateModified = Boolean(this.state.styleMeta.currentTemplate);
+      this.setStyleWarning(overwritesManualValues ? "Preset overwrote manual size/font/layout values." : "");
+      this.updateStyleFeedback();
+      this.setPublicationStatus(`${preset.label} preset applied.`);
+    }
+
+    applyTemplateTraceDefaults(traceDefaults) {
+      if (!traceDefaults) {
+        return;
+      }
+      this.state.data.forEach((trace) => {
+        if (Number.isFinite(Number(traceDefaults.lineWidth))) {
+          if (!trace.line) {
+            trace.line = {};
+          }
+          trace.line.width = Math.max(0, Number(traceDefaults.lineWidth));
+        }
+        if (Number.isFinite(Number(traceDefaults.markerSize)) && hasMarkerControls(trace)) {
+          if (!trace.marker) {
+            trace.marker = {};
+          }
+          trace.marker.size = Math.max(0, Number(traceDefaults.markerSize));
+        }
+        if (Number.isFinite(Number(traceDefaults.opacity))) {
+          trace.opacity = Math.min(1, Math.max(0, Number(traceDefaults.opacity)));
+        }
+      });
+    }
+
+    async applyStyleTemplate(templateKey) {
+      const template = STYLE_TEMPLATES[templateKey];
+      if (!template || !this.hasFigure()) {
+        this.updateStyleFeedback();
+        return;
+      }
+
+      this.pushStyleSnapshot("style template");
+      this.applyStyleControlValues(template.controls);
+      const controlUpdate = this.buildLayoutUpdate();
+      Object.keys(controlUpdate).forEach((path) => setNested(this.state.layout, path, controlUpdate[path]));
+      Object.keys(template.layout || {}).forEach((path) => setNested(this.state.layout, path, template.layout[path]));
+      this.applyTemplateTraceDefaults(template.traces);
+      this.state.styleMeta.presetModified = Boolean(this.state.styleMeta.currentPreset);
+      this.state.styleMeta.currentTemplate = templateKey;
+      this.state.styleMeta.templateModified = false;
+      this.renderTraceControls();
+      await this.render();
+      this.setStyleWarning("");
+      this.updateStyleFeedback();
+      this.setPublicationStatus(`${template.label} style template applied.`);
+    }
+
+    async undoStyleChange() {
+      if (!this.styleHistory.length) {
+        return;
+      }
+      const snapshot = this.styleHistory.pop();
+      this.state.data = deepCopy(snapshot.data);
+      this.state.layout = deepCopy(snapshot.layout);
+      this.state.exportSettings = deepCopy(snapshot.exportSettings);
+      this.state.styleMeta = createStyleMeta(snapshot.styleMeta);
+      this.syncControlsFromFigure();
+      this.renderTraceControls();
+      await this.render();
+      this.setStyleWarning("");
+      this.updateStyleFeedback();
+      this.setPublicationStatus("Previous publication style restored.");
+    }
+
+    async applyBatchTraceStyle(kind) {
+      if (!this.hasFigure()) {
+        return;
+      }
+
+      let input = null;
+      if (kind === "line-width") {
+        input = this.dom.batchLineWidth;
+      } else if (kind === "marker-size") {
+        input = this.dom.batchMarkerSize;
+      } else if (kind === "opacity") {
+        input = this.dom.batchOpacity;
+      }
+      const value = input ? Number(input.value) : NaN;
+      if (!Number.isFinite(value)) {
+        this.setStyleWarning("Enter a valid trace style value.");
+        return;
+      }
+
+      this.pushStyleSnapshot("trace batch style");
+      if (kind === "line-width") {
+        this.state.data.forEach((trace) => {
+          if (!trace.line) {
+            trace.line = {};
+          }
+          trace.line.width = Math.max(0, value);
+        });
+        this.setPublicationStatus("Line width applied to all traces.");
+      } else if (kind === "marker-size") {
+        this.state.data.forEach((trace) => {
+          if (hasMarkerControls(trace)) {
+            if (!trace.marker) {
+              trace.marker = {};
+            }
+            trace.marker.size = Math.max(0, value);
+          }
+        });
+        this.setPublicationStatus("Marker size applied to traces with markers.");
+      } else if (kind === "opacity") {
+        const opacity = Math.min(1, Math.max(0, value));
+        this.state.data.forEach((trace) => {
+          trace.opacity = opacity;
+        });
+        if (input) {
+          input.value = opacity;
+        }
+        this.setPublicationStatus("Opacity applied to all traces.");
+      }
+      this.state.styleMeta.templateModified = Boolean(this.state.styleMeta.currentTemplate);
+      this.setStyleWarning("");
+      this.renderTraceControls();
+      await this.render();
+      this.updateStyleFeedback();
+    }
+
+    async resetAllTraceStyles() {
+      if (!this.hasFigure()) {
+        return;
+      }
+      this.pushStyleSnapshot("trace style reset");
+      this.state.data.forEach((trace, index) => restoreTraceStyles(trace, this.state.defaultTraceStyles[index]));
+      this.state.styleMeta.templateModified = Boolean(this.state.styleMeta.currentTemplate);
+      this.setStyleWarning("");
+      this.renderTraceControls();
+      await this.render();
+      this.updateStyleFeedback();
+      this.setPublicationStatus("Trace styles reset to imported defaults.");
     }
 
     async resetAxisAutorange() {
@@ -443,6 +973,10 @@
         "xaxis.autorange": true,
         "yaxis.autorange": true,
       });
+      this.state.styleMeta.manualLayoutEdited = true;
+      this.state.styleMeta.presetModified = Boolean(this.state.styleMeta.currentPreset);
+      this.state.styleMeta.templateModified = Boolean(this.state.styleMeta.currentTemplate);
+      this.updateStyleFeedback();
       this.setPublicationStatus("Axis autorange restored.");
     }
 
@@ -565,7 +1099,9 @@
         update["marker.size"] = trace.marker.size;
       }
 
+      this.state.styleMeta.templateModified = Boolean(this.state.styleMeta.currentTemplate);
       await Plotly.restyle(this.dom.canvas, update, [index]);
+      this.updateStyleFeedback();
       this.setPublicationStatus("Publication plot updated.");
     }
 
@@ -596,14 +1132,33 @@
       const config = input.config && typeof input.config === "object"
         ? deepCopy(input.config)
         : { responsive: true, displaylogo: false, editable: false };
+      const figurePayload = input.figurePayload && typeof input.figurePayload === "object"
+        ? {
+            data: Array.isArray(input.figurePayload.data) ? deepCopy(input.figurePayload.data) : deepCopy(data),
+            layout: input.figurePayload.layout && typeof input.figurePayload.layout === "object"
+              ? deepCopy(input.figurePayload.layout)
+              : deepCopy(layout),
+            config: input.figurePayload.config && typeof input.figurePayload.config === "object"
+              ? deepCopy(input.figurePayload.config)
+              : deepCopy(config),
+          }
+        : {
+            data: deepCopy(data),
+            layout: deepCopy(layout),
+            config: deepCopy(config),
+          };
       const exportSettings = input.exportSettings && typeof input.exportSettings === "object"
         ? deepCopy(input.exportSettings)
         : {};
+      const defaultTraceStyles = Array.isArray(input.defaultTraceStyles)
+        ? deepCopy(input.defaultTraceStyles)
+        : cloneTraceStyles(figurePayload.data);
 
       this.state = {
         sourceType: typeof input.sourceType === "string" ? input.sourceType : "imported-session",
         sourceTitle: typeof input.sourceTitle === "string" ? input.sourceTitle : "Imported session",
         filenameBase: typeof input.filenameBase === "string" ? input.filenameBase : "publication-plot",
+        figurePayload,
         data,
         layout,
         config: {
@@ -616,12 +1171,16 @@
           width: toFiniteNumber(exportSettings.width || layout.width, DEFAULT_WIDTH),
           height: toFiniteNumber(exportSettings.height || layout.height, DEFAULT_HEIGHT),
         },
+        defaultTraceStyles,
+        styleMeta: createStyleMeta(input.styleMeta),
       };
+      this.styleHistory = [];
 
       if (!this.hasFigure()) {
         warnings.push("Publication Plot did not contain trace data to restore.");
         this.renderTraceControls();
         this.syncEnabledState();
+        this.updateStyleFeedback();
         this.setPublicationStatus("No publication figure was restored from the session.");
         await this.render();
         return warnings;
@@ -634,6 +1193,8 @@
       this.renderTraceControls();
       await this.render();
       this.syncEnabledState();
+      this.setStyleWarning("");
+      this.updateStyleFeedback();
       this.setPublicationStatus("Publication Plot restored from imported session.");
       return warnings;
     }

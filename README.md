@@ -23,7 +23,7 @@ A static web app for local surface-tension plotting, trend extraction, noise ana
   - Allan Deviation
   - Power Spectral Density (PSD)
 - CMC batch analysis
-- Local plot export as PNG
+- Publication Plot polishing with presets, style templates, and PNG/SVG export
 
 ## Structure
 

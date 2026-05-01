@@ -79,9 +79,38 @@ analysis, and conversion helpers.
 
 ## Tests
 
-Python tests live under `tests/`. They cover the web bridge behavior and the
-Python source bundle generator. There is currently no JavaScript test framework;
-frontend validation is done by static syntax checks and browser smoke tests.
+Tests live under `tests/`.
+
+- Python unit tests cover bridge behavior, time-series quality diagnostics,
+  trend/noise service edge cases, and the Python source bundle generator.
+- Lightweight Node-based JavaScript tests cover pure browser utilities such as
+  session serialization and DOM-safe helper behavior. These tests do not load
+  Pyodide or require CDN access.
+- Browser validation is intentionally treated as a smoke check: serve the app
+  with `python3 -m http.server`, open `index.html`, confirm the main tabs are
+  visible, and confirm the runtime boot/status UI appears. Deeper browser tests
+  that rely on CDN availability should be marked as integration checks.
+
+Current commands:
+
+```bash
+python3 -m unittest discover -s tests
+node tests/test_session_manager.js
+node tests/test_dom_utils.js
+python3 tools/build_python_sources.py --check
+```
+
+## Performance Notes
+
+- Pyodide has a cold-start cost because the browser initializes the runtime and
+  loads configured Python packages before bridge calls are available.
+- `assets/js/python-sources.js` is generated from `py/`; keeping it current
+  avoids runtime import drift.
+- Plotly rendering cost scales with trace count and point count. Compare and
+  Publication Plot state should avoid unnecessary copies of very large arrays.
+- Session export/import is JSON-only and local. Large in-memory curves can make
+  exported sessions large, so callers should preserve only the data needed to
+  restore supported workflows.
 
 ## Known Constraints
 
@@ -92,6 +121,10 @@ frontend validation is done by static syntax checks and browser smoke tests.
 - The app intentionally stays plain JavaScript loaded by `index.html`; do not
   add a bundler, framework, or TypeScript build step without changing the
   deployment model.
+- CMC-specific enhancements are intentionally out of scope for non-CMC
+  maintainability, diagnostics, and session work.
+- CMC session import/export behavior is not covered by the non-CMC session
+  manager.
 - Deferred issue: CMC rendering in `assets/js/app.js` still uses `innerHTML` for
   CMC-specific summary and table markup, including displayed filenames. That
   behavior is left unchanged until a dedicated CMC refactor.

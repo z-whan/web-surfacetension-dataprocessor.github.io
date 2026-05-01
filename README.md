@@ -1,34 +1,30 @@
 # Surface Tension Analysis Tool
 
-A static web app for local surface-tension plotting, trend extraction, noise analysis, and CMC analysis.
+A static browser app for surface-tension plotting and local analysis. The
+frontend is plain HTML/CSS/JavaScript, and the Python analysis layer runs in the
+browser through Pyodide.
 
 ## Key Points
 
-- Frontend: HTML, CSS, JavaScript
-- Python runtime: Pyodide in the browser
-- Processing: local only, no backend upload
-- Deployment: GitHub Pages, Netlify, Cloudflare Pages
+- Static app: `index.html` plus files under `assets/`.
+- Python source: `py/`, mirrored into the browser runtime at load time.
+- Processing model: user data is processed locally in the browser; there is no
+  project backend or server-side storage.
+- Runtime resources: the browser may still fetch configured assets such as
+  Plotly, Pyodide, and Python packages from URLs/CDNs.
 
 ## Features
 
-- Time-series plotting
-- Trend extraction:
-  - Moving Average / Rolling Mean
-  - Median Filter
-  - Savitzky-Golay Filter
-- Noise analysis:
-  - Residual Standard Deviation
-  - Adjacent Difference Statistics
-  - Rolling Standard Deviation
-  - Allan Deviation
-  - Power Spectral Density (PSD)
-- CMC batch analysis
-- Publication Plot polishing with presets, style templates, and PNG/SVG export
+- Time-series plotting, data quality diagnostics, trend extraction, and noise analysis.
+- Compare workflows for marked curves.
+- Session export/import for reproducible settings and figure styling.
+- CMC batch analysis.
+- Publication Plot polishing with presets, style templates, and PNG/SVG export.
 
 ## Structure
 
 ```text
-web-static-pyodide/
+.
 ├─ index.html
 ├─ assets/
 │  ├─ css/main.css
@@ -36,12 +32,13 @@ web-static-pyodide/
 ├─ py/
 │  ├─ web_bridge.py
 │  └─ DataProcessor/
+├─ tools/
 └─ tests/
 ```
 
-## Run Locally
+## Local Development
 
-Use any static file server:
+Use any static file server from the repository root:
 
 ```bash
 python3 -m http.server 8080
@@ -50,14 +47,46 @@ python3 -m http.server 8080
 Open:
 
 ```text
-http://localhost:8080/web-static-pyodide/
+http://localhost:8080/
 ```
 
-## Python Source Bundle
+Normal use does not require a frontend build step. After changing Python files,
+regenerate the Python source mirror as described below.
 
-The `py/` directory is the source of truth for the Python code loaded by
-Pyodide. The browser bundle at `assets/js/python-sources.js` is generated from
-that source tree and should not be edited manually.
+## Tests
+
+Run the Python tests with a Python environment that has the project test
+dependencies installed, including `numpy` and `pandas`:
+
+```bash
+python3 -m unittest discover -s tests
+```
+
+Run the lightweight JavaScript tests:
+
+```bash
+node tests/test_session_manager.js
+node tests/test_dom_utils.js
+```
+
+Optional JavaScript syntax check:
+
+```bash
+for f in assets/js/*.js; do node --check "$f" || exit 1; done
+```
+
+Manual browser smoke check:
+
+1. Start `python3 -m http.server 8080`.
+2. Open `http://localhost:8080/`.
+3. Verify the Time Series, Compare, and Publication Plot tabs are visible.
+4. Verify the runtime boot/status UI appears.
+
+## Python Source Mirror
+
+The `py/` directory is the source of truth for Python code loaded by Pyodide.
+The browser bundle at `assets/js/python-sources.js` is generated from that
+source tree and should not be edited manually.
 
 Regenerate the bundle after changing Python files:
 
@@ -71,15 +100,16 @@ Check whether the committed bundle is current:
 python3 tools/build_python_sources.py --check
 ```
 
-## Deploy
+## Static Deployment
 
-- GitHub Pages: publish this folder as the site root
-- Netlify: set the publish directory to `web-static-pyodide`
-- Cloudflare Pages: set the output directory to `web-static-pyodide`
+Deploy the repository contents as static files. GitHub Pages, Netlify,
+Cloudflare Pages, and similar static hosts can serve the app directly as long
+as `index.html`, `assets/`, and the generated Python source mirror are present.
 
 ## Notes
 
-- Files stay in the browser runtime
-- CSV, XLSX, and XLS are supported
-- Optional Excel packages are loaded only when needed
-- The Time Series tab includes built-in help for trend and noise tools
+- CSV, XLSX, and XLS are supported where the browser runtime has the required
+  Python packages available.
+- Optional Excel packages are loaded only when needed.
+- See `docs/architecture.md` for module boundaries, test strategy, and known
+  deferred items.

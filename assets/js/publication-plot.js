@@ -323,6 +323,10 @@
     };
   }
 
+  function hasObjectEntries(value) {
+    return value && typeof value === "object" && Object.keys(value).length > 0;
+  }
+
   function cloneTraceStyles(data) {
     return (Array.isArray(data) ? data : []).map((trace) => ({
       line: deepCopy(trace && trace.line ? trace.line : null),
@@ -350,6 +354,18 @@
     } else {
       trace.opacity = style.opacity;
     }
+  }
+
+  function createDefaultLayoutFromPayload(figurePayload, exportSettings) {
+    const layout = deepCopy((figurePayload && figurePayload.layout) || {});
+    const width = toFiniteNumber(exportSettings && exportSettings.width, toFiniteNumber(layout.width, DEFAULT_WIDTH));
+    const height = toFiniteNumber(exportSettings && exportSettings.height, toFiniteNumber(layout.height, DEFAULT_HEIGHT));
+    return {
+      ...layout,
+      width,
+      height,
+      autosize: false,
+    };
   }
 
   function buildTraceInputField(index, labelText, fieldName, inputType, value, attrs) {
@@ -409,6 +425,11 @@
         layout: {},
         config: { responsive: true, displaylogo: false, editable: false },
         exportSettings: {
+          width: DEFAULT_WIDTH,
+          height: DEFAULT_HEIGHT,
+        },
+        defaultLayout: {},
+        defaultExportSettings: {
           width: DEFAULT_WIDTH,
           height: DEFAULT_HEIGHT,
         },
@@ -508,12 +529,16 @@
       const meta = this.state.styleMeta || createStyleMeta();
       const preset = FIGURE_PRESETS[meta.currentPreset];
       const template = STYLE_TEMPLATES[meta.currentTemplate];
-      const presetLabel = preset
-        ? `Preset: ${preset.label}${meta.presetModified ? " (modified)" : ""}`
-        : "Preset: none";
-      const templateLabel = template
-        ? `Template: ${template.label}${meta.templateModified ? " (modified)" : ""}`
-        : "Template: none";
+      const presetLabel = meta.currentPreset === "default"
+        ? "Preset: Default"
+        : preset
+          ? `Preset: ${preset.label}${meta.presetModified ? " (modified)" : ""}`
+          : "Preset: none";
+      const templateLabel = meta.currentTemplate === "default"
+        ? "Template: Default"
+        : template
+          ? `Template: ${template.label}${meta.templateModified ? " (modified)" : ""}`
+          : "Template: none";
 
       if (this.dom.figurePreset) {
         this.dom.figurePreset.value = meta.currentPreset || "";
@@ -566,6 +591,13 @@
       const sourceRect = source.getBoundingClientRect ? source.getBoundingClientRect() : null;
       const width = toFiniteNumber(layout.width, Math.round(sourceRect && sourceRect.width ? sourceRect.width : DEFAULT_WIDTH));
       const height = toFiniteNumber(layout.height, Math.round(sourceRect && sourceRect.height ? sourceRect.height : DEFAULT_HEIGHT));
+      const publicationLayout = {
+        ...layout,
+        width,
+        height,
+        autosize: false,
+      };
+      const exportSettings = { width, height };
 
       this.state = {
         sourceType: meta.sourceType || "unknown",
@@ -573,19 +605,16 @@
         filenameBase: meta.filenameBase || "publication-plot",
         figurePayload,
         data: copiedData,
-        layout: {
-          ...layout,
-          width,
-          height,
-          autosize: false,
-        },
+        layout: publicationLayout,
         config: {
           ...copiedConfig,
           responsive: true,
           displaylogo: false,
           editable: false,
         },
-        exportSettings: { width, height },
+        exportSettings,
+        defaultLayout: deepCopy(publicationLayout),
+        defaultExportSettings: deepCopy(exportSettings),
         defaultTraceStyles: cloneTraceStyles(copiedData),
         styleMeta: createStyleMeta(),
       };
@@ -805,7 +834,49 @@
       }
     }
 
+    getDefaultLayoutSnapshot() {
+      const fallbackExportSettings = hasObjectEntries(this.state.defaultExportSettings)
+        ? this.state.defaultExportSettings
+        : this.state.exportSettings;
+      const layout = hasObjectEntries(this.state.defaultLayout)
+        ? deepCopy(this.state.defaultLayout)
+        : createDefaultLayoutFromPayload(this.state.figurePayload, fallbackExportSettings);
+      const exportSettings = hasObjectEntries(this.state.defaultExportSettings)
+        ? deepCopy(this.state.defaultExportSettings)
+        : {
+            width: toFiniteNumber(layout.width, DEFAULT_WIDTH),
+            height: toFiniteNumber(layout.height, DEFAULT_HEIGHT),
+          };
+      layout.width = exportSettings.width;
+      layout.height = exportSettings.height;
+      layout.autosize = false;
+      return { layout, exportSettings };
+    }
+
+    async applyDefaultFigurePreset() {
+      if (!this.hasFigure()) {
+        return;
+      }
+      this.pushStyleSnapshot("default figure preset");
+      const defaults = this.getDefaultLayoutSnapshot();
+      this.state.layout = defaults.layout;
+      this.state.exportSettings = defaults.exportSettings;
+      this.state.styleMeta.currentPreset = "default";
+      this.state.styleMeta.manualLayoutEdited = false;
+      this.state.styleMeta.presetModified = false;
+      this.state.styleMeta.templateModified = Boolean(this.state.styleMeta.currentTemplate);
+      this.syncControlsFromFigure();
+      await this.render();
+      this.setStyleWarning("");
+      this.updateStyleFeedback();
+      this.setPublicationStatus("Default figure preset restored.");
+    }
+
     async applyFigurePreset(presetKey) {
+      if (presetKey === "default") {
+        await this.applyDefaultFigurePreset();
+        return;
+      }
       const preset = FIGURE_PRESETS[presetKey];
       if (!preset || !this.hasFigure()) {
         this.updateStyleFeedback();
@@ -848,7 +919,33 @@
       });
     }
 
+    async applyDefaultStyleTemplate() {
+      if (!this.hasFigure()) {
+        return;
+      }
+      this.pushStyleSnapshot("default style template");
+      const defaults = this.getDefaultLayoutSnapshot();
+      this.state.layout = defaults.layout;
+      this.state.exportSettings = defaults.exportSettings;
+      this.state.data.forEach((trace, index) => restoreTraceStyles(trace, this.state.defaultTraceStyles[index]));
+      this.state.styleMeta.currentPreset = "default";
+      this.state.styleMeta.currentTemplate = "default";
+      this.state.styleMeta.manualLayoutEdited = false;
+      this.state.styleMeta.presetModified = false;
+      this.state.styleMeta.templateModified = false;
+      this.syncControlsFromFigure();
+      this.renderTraceControls();
+      await this.render();
+      this.setStyleWarning("");
+      this.updateStyleFeedback();
+      this.setPublicationStatus("Default style template restored.");
+    }
+
     async applyStyleTemplate(templateKey) {
+      if (templateKey === "default") {
+        await this.applyDefaultStyleTemplate();
+        return;
+      }
       const template = STYLE_TEMPLATES[templateKey];
       if (!template || !this.hasFigure()) {
         this.updateStyleFeedback();
@@ -1153,6 +1250,15 @@
       const defaultTraceStyles = Array.isArray(input.defaultTraceStyles)
         ? deepCopy(input.defaultTraceStyles)
         : cloneTraceStyles(figurePayload.data);
+      const defaultExportSettings = hasObjectEntries(input.defaultExportSettings)
+        ? deepCopy(input.defaultExportSettings)
+        : {
+            width: toFiniteNumber(exportSettings.width || figurePayload.layout.width || layout.width, DEFAULT_WIDTH),
+            height: toFiniteNumber(exportSettings.height || figurePayload.layout.height || layout.height, DEFAULT_HEIGHT),
+          };
+      const defaultLayout = hasObjectEntries(input.defaultLayout)
+        ? deepCopy(input.defaultLayout)
+        : createDefaultLayoutFromPayload(figurePayload, defaultExportSettings);
 
       this.state = {
         sourceType: typeof input.sourceType === "string" ? input.sourceType : "imported-session",
@@ -1171,6 +1277,8 @@
           width: toFiniteNumber(exportSettings.width || layout.width, DEFAULT_WIDTH),
           height: toFiniteNumber(exportSettings.height || layout.height, DEFAULT_HEIGHT),
         },
+        defaultLayout,
+        defaultExportSettings,
         defaultTraceStyles,
         styleMeta: createStyleMeta(input.styleMeta),
       };

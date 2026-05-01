@@ -53,6 +53,24 @@ Open:
 http://localhost:8080/web-static-pyodide/
 ```
 
+## Python Source Bundle
+
+The `py/` directory is the source of truth for the Python code loaded by
+Pyodide. The browser bundle at `assets/js/python-sources.js` is generated from
+that source tree and should not be edited manually.
+
+Regenerate the bundle after changing Python files:
+
+```bash
+python3 tools/build_python_sources.py
+```
+
+Check whether the committed bundle is current:
+
+```bash
+python3 tools/build_python_sources.py --check
+```
+
 ## Deploy
 
 - GitHub Pages: publish this folder as the site root

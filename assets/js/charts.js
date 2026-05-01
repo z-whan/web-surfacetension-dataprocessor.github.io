@@ -1,18 +1,10 @@
 (function () {
+  const domUtils = window.SurfaceLabDomUtils;
   const PAPER_COLOR = "#ffffff";
   const GRID_COLOR = "#d9d9d9";
   const FONT_FAMILY = "Arial, Helvetica, sans-serif";
   const TEXT_COLOR = "#1f1f1f";
   const PALETTE = ["#2f5d8a", "#8a4f2f", "#3c7a5b", "#7a3c68", "#6a6a2f", "#2f6e73"];
-
-  function escapeHtml(value) {
-    return String(value ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
-  }
 
   function baseLayout(options) {
     return {
@@ -203,7 +195,9 @@
   async function renderComparePlot(target, curves, options) {
     const opts = options || {};
     const traces = curves.map((curve, index) => {
-      const label = escapeHtml(String(curve.displayLabel || "").trim() || "#" + curve.displayIndex);
+      const label = String(curve.displayLabel || "").trim() || "#" + curve.displayIndex;
+      const hoverLabel = domUtils.escapeHtml(label);
+      const hoverSelection = domUtils.escapeHtml(curve.selection || "");
       return {
         type: "scatter",
         mode: "lines",
@@ -215,7 +209,7 @@
           color: PALETTE[index % PALETTE.length],
           dash: curve.dataType === "trend" ? "dash" : "solid",
         },
-        hovertemplate: label + "<br>" + curve.selection + "<br>%{x}, %{y:.4f}<extra></extra>",
+        hovertemplate: hoverLabel + "<br>" + hoverSelection + "<br>%{x}, %{y:.4f}<extra></extra>",
       };
     });
 

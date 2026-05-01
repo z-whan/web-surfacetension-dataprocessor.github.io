@@ -1,4 +1,6 @@
 (function () {
+  const domUtils = window.SurfaceLabDomUtils;
+
   const TREND_METHODS = {
     moving_average: {
       label: "Moving Average / Rolling Mean",
@@ -175,65 +177,65 @@
     },
   };
 
-  function buildOptionsHtml(definitionMap) {
-    return Object.keys(definitionMap)
-      .map((key) => `<option value="${key}">${definitionMap[key].label}</option>`)
-      .join("");
+  function populateMethodSelect(select, definitionMap) {
+    domUtils.populateSelect(
+      select,
+      Object.keys(definitionMap).map((key) => ({
+        value: key,
+        label: definitionMap[key].label,
+      }))
+    );
   }
 
   function renderParameterFields(container, definition) {
-    container.innerHTML = "";
+    domUtils.clear(container);
 
     if (!definition.params.length) {
-      container.innerHTML = '<div class="info-box">No additional parameters.</div>';
+      container.appendChild(domUtils.el("div", { className: "info-box", text: "No additional parameters." }));
       return;
     }
 
     definition.params.forEach((param) => {
       if (param.type === "checkbox") {
-        const label = document.createElement("label");
-        label.className = "checkbox-row checkbox-row-compact";
-        label.innerHTML = `
-          <input
-            type="checkbox"
-            data-param-key="${param.key}"
-            ${param.defaultValue ? "checked" : ""}
-          />
-          ${param.label}
-        `;
+        const input = domUtils.el("input", {
+          attrs: { type: "checkbox", "data-param-key": param.key },
+          props: { checked: Boolean(param.defaultValue) },
+        });
+        const label = domUtils.el("label", { className: "checkbox-row checkbox-row-compact" }, [
+          input,
+          param.label,
+        ]);
         container.appendChild(label);
         return;
       }
 
-      const field = document.createElement("div");
-      field.className = "field";
+      const field = domUtils.el("div", { className: "field" });
+      field.appendChild(domUtils.el("label", { text: param.label }));
 
       if (param.type === "select") {
-        field.innerHTML = `
-          <label>${param.label}</label>
-          <select data-param-key="${param.key}">
-            ${param.options
-              .map(
-                (option) =>
-                  `<option value="${option.value}"${
-                    option.value === param.defaultValue ? " selected" : ""
-                  }>${option.label}</option>`
-              )
-              .join("")}
-          </select>
-        `;
+        const select = domUtils.el("select", {
+          attrs: { "data-param-key": param.key },
+        });
+        domUtils.populateSelect(
+          select,
+          param.options.map((option) => ({
+            value: option.value,
+            label: option.label,
+            selected: option.value === param.defaultValue,
+          }))
+        );
+        field.appendChild(select);
       } else {
-        field.innerHTML = `
-          <label>${param.label}</label>
-          <input
-            type="${param.type === "number" ? "number" : "text"}"
-            data-param-key="${param.key}"
-            value="${param.defaultValue || ""}"
-            ${param.placeholder ? `placeholder="${param.placeholder}"` : ""}
-            ${param.min ? `min="${param.min}"` : ""}
-            ${param.step ? `step="${param.step}"` : ""}
-          />
-        `;
+        field.appendChild(domUtils.el("input", {
+          attrs: {
+            type: param.type === "number" ? "number" : "text",
+            "data-param-key": param.key,
+            placeholder: param.placeholder,
+            min: param.min,
+            step: param.step,
+          },
+          props: { value: param.defaultValue || "" },
+        }));
       }
 
       container.appendChild(field);
@@ -287,29 +289,69 @@
     return Array.isArray(values) ? values.slice() : [];
   }
 
-  function buildHelpHtml() {
-    const buildSection = (title, methods) => {
-      return `
-        <section class="help-section">
-          <h3>${title}</h3>
-          ${Object.keys(methods)
-            .map((key) => {
-              const item = methods[key];
-              return `
-                <div class="help-item">
-                  <h4>${item.label}</h4>
-                  <p><strong>Principle:</strong> ${item.help.principle}</p>
-                  <p><strong>Useful for:</strong> ${item.help.use}</p>
-                  <p><strong>Interpretation:</strong> ${item.help.interpret}</p>
-                </div>
-              `;
-            })
-            .join("")}
-        </section>
-      `;
-    };
+  function buildHelpSection(title, methods) {
+    const section = domUtils.el("section", { className: "help-section" }, [
+      domUtils.el("h3", { text: title }),
+    ]);
 
-    return buildSection("Trend Extraction", TREND_METHODS) + buildSection("Noise Analysis", NOISE_METHODS);
+    Object.keys(methods).forEach((key) => {
+      const item = methods[key];
+      const helpItem = domUtils.el("div", { className: "help-item" }, [
+        domUtils.el("h4", { text: item.label }),
+        buildHelpLine("Principle:", item.help.principle),
+        buildHelpLine("Useful for:", item.help.use),
+        buildHelpLine("Interpretation:", item.help.interpret),
+      ]);
+      section.appendChild(helpItem);
+    });
+
+    return section;
+  }
+
+  function buildHelpLine(label, text) {
+    const paragraph = domUtils.el("p");
+    paragraph.appendChild(domUtils.el("strong", { text: label }));
+    paragraph.appendChild(document.createTextNode(" " + text));
+    return paragraph;
+  }
+
+  function renderHelpContent(container) {
+    domUtils.replaceChildren(container, [
+      buildHelpSection("Trend Extraction", TREND_METHODS),
+      buildHelpSection("Noise Analysis", NOISE_METHODS),
+    ]);
+  }
+
+  function buildSummaryTable(columns, rows) {
+    if (!rows.length) {
+      return domUtils.el("div", { className: "empty-state", text: "No summary data available." });
+    }
+
+    const table = domUtils.el("table");
+    const headerRow = domUtils.el("tr");
+    columns.forEach((column) => {
+      headerRow.appendChild(domUtils.el("th", { text: column }));
+    });
+
+    const body = domUtils.el("tbody");
+    rows.forEach((row) => {
+      const tr = domUtils.el("tr");
+      columns.forEach((column) => {
+        tr.appendChild(domUtils.el("td", { text: formatValue(row[column]) }));
+      });
+      body.appendChild(tr);
+    });
+
+    table.appendChild(domUtils.el("thead", {}, [headerRow]));
+    table.appendChild(body);
+    return domUtils.el("div", { className: "table-scroll" }, [table]);
+  }
+
+  function renderMetricCards(container, cards) {
+    domUtils.replaceChildren(
+      container,
+      cards.map((card) => domUtils.metricCard(card.label, card.value))
+    );
   }
 
   class TimeSeriesModuleController {
@@ -378,11 +420,11 @@
 
     bind() {
       this.dom.plotInput.accept = this.config.ACCEPTED_DATA_EXTENSIONS;
-      this.dom.trendMethod.innerHTML = buildOptionsHtml(TREND_METHODS);
-      this.dom.noiseMethod.innerHTML = buildOptionsHtml(NOISE_METHODS);
+      populateMethodSelect(this.dom.trendMethod, TREND_METHODS);
+      populateMethodSelect(this.dom.noiseMethod, NOISE_METHODS);
       renderParameterFields(this.dom.trendParams, TREND_METHODS[this.dom.trendMethod.value]);
       renderParameterFields(this.dom.noiseParams, NOISE_METHODS[this.dom.noiseMethod.value]);
-      this.dom.helpContent.innerHTML = buildHelpHtml();
+      renderHelpContent(this.dom.helpContent);
       this.renderTrendStatus("No trend has been applied yet.");
       this.renderNoiseOutput(null);
       this.updateYSpanLabel();
@@ -871,14 +913,17 @@
     }
 
     renderPlotSummary(payload) {
-      this.dom.plotSummary.innerHTML = payload
-        ? `
-          <div class="metric-card"><span>Rows</span><strong>${payload.summary.rows}</strong></div>
-          <div class="metric-card"><span>Series</span><strong>${payload.summary.seriesCount}</strong></div>
-          <div class="metric-card"><span>Row Range</span><strong>${payload.rowRange.join(" - ")}</strong></div>
-          <div class="metric-card"><span>Selection</span><strong>${payload.expTag}</strong></div>
-        `
-        : "";
+      if (!payload) {
+        domUtils.clear(this.dom.plotSummary);
+        return;
+      }
+
+      renderMetricCards(this.dom.plotSummary, [
+        { label: "Rows", value: payload.summary.rows },
+        { label: "Series", value: payload.summary.seriesCount },
+        { label: "Row Range", value: payload.rowRange.join(" - ") },
+        { label: "Selection", value: payload.expTag },
+      ]);
     }
 
     renderTrendStatus(text) {
@@ -908,35 +953,10 @@
       });
     }
 
-    buildSummaryTable(columns, rows) {
-      if (!rows.length) {
-        return '<div class="empty-state">No summary data available.</div>';
-      }
-
-      const header = columns.map((column) => `<th>${column}</th>`).join("");
-      const body = rows
-        .map(
-          (row) =>
-            `<tr>${columns
-              .map((column) => `<td>${formatValue(row[column])}</td>`)
-              .join("")}</tr>`
-        )
-        .join("");
-
-      return `
-        <div class="table-scroll">
-          <table>
-            <thead><tr>${header}</tr></thead>
-            <tbody>${body}</tbody>
-          </table>
-        </div>
-      `;
-    }
-
     async renderNoiseOutput(payload) {
       if (!payload) {
         this.dom.noiseSummary.textContent = "No noise analysis yet.";
-        this.dom.noiseTable.innerHTML = "";
+        domUtils.clear(this.dom.noiseTable);
         this.dom.noiseCanvas.hidden = true;
         this.dom.noiseExport.disabled = true;
         this.dom.noiseExportSvg.disabled = true;
@@ -946,9 +966,9 @@
       }
 
       this.dom.noiseSummary.textContent = payload.summaryText;
-      this.dom.noiseTable.innerHTML = this.buildSummaryTable(
-        payload.summaryColumns,
-        payload.summaryRows
+      domUtils.replaceChildren(
+        this.dom.noiseTable,
+        buildSummaryTable(payload.summaryColumns, payload.summaryRows)
       );
 
       if (payload.plot) {

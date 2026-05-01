@@ -1,12 +1,5 @@
 (function () {
-  function escapeHtml(value) {
-    return String(value ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
-  }
+  const domUtils = window.SurfaceLabDomUtils;
 
   function formatTrendDetails(curve) {
     if (curve.dataType !== "trend") {
@@ -484,50 +477,58 @@
       const selected = this.state.selectedIds.size;
       const plotted = typeof plottedCount === "number" ? plottedCount : this.state.lastPlottedIds.length;
       const skipped = skippedCount || 0;
-      this.dom.summary.innerHTML = `
-        <div class="metric-card"><span>Marked</span><strong>${marked}</strong></div>
-        <div class="metric-card"><span>Selected</span><strong>${selected}</strong></div>
-        <div class="metric-card"><span>Plotted</span><strong>${plotted}</strong></div>
-        <div class="metric-card"><span>Skipped</span><strong>${skipped}</strong></div>
-      `;
+      domUtils.replaceChildren(this.dom.summary, [
+        domUtils.metricCard("Marked", marked),
+        domUtils.metricCard("Selected", selected),
+        domUtils.metricCard("Plotted", plotted),
+        domUtils.metricCard("Skipped", skipped),
+      ]);
     }
 
     render() {
       this.dom.emptyState.hidden = this.state.curves.length > 0;
-      this.dom.tableBody.innerHTML = "";
+      domUtils.clear(this.dom.tableBody);
 
       this.state.curves.forEach((curve) => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>
-            <input
-              type="checkbox"
-              data-compare-select-id="${curve.id}"
-              ${this.state.selectedIds.has(curve.id) ? "checked" : ""}
-              aria-label="Select compare curve ${escapeHtml(curveDisplayLabel(curve))}"
-            />
-          </td>
-          <td>
-            <input
-              class="table-input compare-index-input"
-              type="text"
-              value="${escapeHtml(curveDisplayLabel(curve))}"
-              data-compare-label-id="${curve.id}"
-              aria-label="Compare curve label ${escapeHtml(defaultDisplayLabel(curve))}"
-            />
-          </td>
-          <td><span class="table-file">[${escapeHtml(curve.sourceFileName)}]</span></td>
-          <td>${escapeHtml(curve.experimentRange || "—")}</td>
-          <td>${escapeHtml(curve.selection || "—")}</td>
-          <td>${escapeHtml(curve.dataType || "raw")}</td>
-          <td>${escapeHtml(formatTrendDetails(curve) || "—")}</td>
-          <td>${curve.points || 0}</td>
-          <td>
-            <button class="ghost-button compact-button" type="button" data-compare-remove-id="${curve.id}">
-              Remove
-            </button>
-          </td>
-        `;
+        const selectInput = domUtils.el("input", {
+          attrs: {
+            type: "checkbox",
+            "data-compare-select-id": curve.id,
+            "aria-label": "Select compare curve " + curveDisplayLabel(curve),
+          },
+          props: { checked: this.state.selectedIds.has(curve.id) },
+        });
+        const labelInput = domUtils.el("input", {
+          className: "table-input compare-index-input",
+          attrs: {
+            type: "text",
+            "data-compare-label-id": curve.id,
+            "aria-label": "Compare curve label " + defaultDisplayLabel(curve),
+          },
+          props: { value: curveDisplayLabel(curve) },
+        });
+        const removeButton = domUtils.el("button", {
+          className: "ghost-button compact-button",
+          text: "Remove",
+          attrs: {
+            type: "button",
+            "data-compare-remove-id": curve.id,
+          },
+        });
+
+        const tr = domUtils.el("tr", {}, [
+          domUtils.el("td", {}, [selectInput]),
+          domUtils.el("td", {}, [labelInput]),
+          domUtils.el("td", {}, [
+            domUtils.el("span", { className: "table-file", text: "[" + curve.sourceFileName + "]" }),
+          ]),
+          domUtils.el("td", { text: curve.experimentRange || "—" }),
+          domUtils.el("td", { text: curve.selection || "—" }),
+          domUtils.el("td", { text: curve.dataType || "raw" }),
+          domUtils.el("td", { text: formatTrendDetails(curve) || "—" }),
+          domUtils.el("td", { text: curve.points || 0 }),
+          domUtils.el("td", {}, [removeButton]),
+        ]);
         this.dom.tableBody.appendChild(tr);
       });
 

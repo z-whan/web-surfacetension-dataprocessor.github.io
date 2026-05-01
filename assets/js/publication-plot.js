@@ -1,4 +1,5 @@
 (function () {
+  const domUtils = window.SurfaceLabDomUtils;
   const DEFAULT_WIDTH = 1400;
   const DEFAULT_HEIGHT = 900;
   const DEFAULT_FONT_SIZE = 14;
@@ -21,15 +22,6 @@
       }
     }
     return JSON.parse(JSON.stringify(value));
-  }
-
-  function escapeHtml(value) {
-    return String(value ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
   }
 
   function getTitleText(title) {
@@ -138,6 +130,49 @@
   function hasMarkerControls(trace) {
     const mode = String(trace.mode || "");
     return trace.type === "scatter" || Boolean(trace.marker) || mode.includes("markers");
+  }
+
+  function buildTraceInputField(index, labelText, fieldName, inputType, value, attrs) {
+    const inputId = `publication-trace-${fieldName}-${index}`;
+    const input = domUtils.el("input", {
+      attrs: {
+        id: inputId,
+        type: inputType,
+        "data-trace-index": index,
+        "data-trace-field": fieldName,
+        ...(attrs || {}),
+      },
+      props: { value },
+    });
+
+    return domUtils.el("div", { className: "field" }, [
+      domUtils.el("label", { text: labelText, attrs: { for: inputId } }),
+      input,
+    ]);
+  }
+
+  function buildTraceDashField(index, selectedDash) {
+    const selectId = `publication-trace-dash-${index}`;
+    const select = domUtils.el("select", {
+      attrs: {
+        id: selectId,
+        "data-trace-index": index,
+        "data-trace-field": "line-dash",
+      },
+    });
+    domUtils.populateSelect(
+      select,
+      LINE_DASHES.map((dash) => ({
+        value: dash,
+        label: dash,
+        selected: dash === selectedDash,
+      }))
+    );
+
+    return domUtils.el("div", { className: "field" }, [
+      domUtils.el("label", { text: "Line Dash", attrs: { for: selectId } }),
+      select,
+    ]);
   }
 
   class PublicationPlotController {
@@ -412,68 +447,71 @@
     }
 
     renderTraceControls() {
+      domUtils.clear(this.dom.traceList);
+
       if (!this.hasFigure()) {
-        this.dom.traceList.innerHTML = '<div class="empty-state">No traces loaded.</div>';
+        this.dom.traceList.appendChild(domUtils.el("div", {
+          className: "empty-state",
+          text: "No traces loaded.",
+        }));
         return;
       }
 
-      this.dom.traceList.innerHTML = this.state.data
-        .map((trace, index) => {
-          const traceColor = hexColor(
-            (trace.line && trace.line.color) || (trace.marker && trace.marker.color),
-            FALLBACK_TRACE_COLOR
-          );
-          const lineWidth = toFiniteNumber(trace.line && trace.line.width, 2);
-          const lineDash = LINE_DASHES.includes(trace.line && trace.line.dash)
-            ? trace.line.dash
-            : "solid";
-          const markerSize = toFiniteNumber(trace.marker && trace.marker.size, 6);
-          const markerControls = hasMarkerControls(trace)
-            ? `
-              <div class="field">
-                <label for="publication-trace-marker-${index}">Marker Size</label>
-                <input id="publication-trace-marker-${index}" type="number" min="0" max="40" step="0.5" value="${markerSize}" data-trace-index="${index}" data-trace-field="marker-size" />
-              </div>
-            `
-            : "";
-          const dashOptions = LINE_DASHES
-            .map((dash) => `<option value="${dash}" ${dash === lineDash ? "selected" : ""}>${dash}</option>`)
-            .join("");
+      this.state.data.forEach((trace, index) => {
+        const traceColor = hexColor(
+          (trace.line && trace.line.color) || (trace.marker && trace.marker.color),
+          FALLBACK_TRACE_COLOR
+        );
+        const lineWidth = toFiniteNumber(trace.line && trace.line.width, 2);
+        const lineDash = LINE_DASHES.includes(trace.line && trace.line.dash)
+          ? trace.line.dash
+          : "solid";
+        const markerSize = toFiniteNumber(trace.marker && trace.marker.size, 6);
 
-          return `
-            <div class="trace-editor-card">
-              <div class="trace-editor-title">
-                <span>Trace ${index + 1}</span>
-                <label class="checkbox-row checkbox-row-compact">
-                  <input type="checkbox" ${trace.visible === false || trace.visible === "legendonly" ? "" : "checked"} data-trace-index="${index}" data-trace-field="visible" />
-                  Visible
-                </label>
-              </div>
-              <div class="field-grid">
-                <div class="field">
-                  <label for="publication-trace-name-${index}">Trace Display Name</label>
-                  <input id="publication-trace-name-${index}" type="text" value="${escapeHtml(trace.name || "")}" data-trace-index="${index}" data-trace-field="name" />
-                </div>
-                <div class="trace-style-grid">
-                  <div class="field">
-                    <label for="publication-trace-color-${index}">Line Color</label>
-                    <input id="publication-trace-color-${index}" type="color" value="${traceColor}" data-trace-index="${index}" data-trace-field="color" />
-                  </div>
-                  <div class="field">
-                    <label for="publication-trace-width-${index}">Line Width</label>
-                    <input id="publication-trace-width-${index}" type="number" min="0" max="20" step="0.2" value="${lineWidth}" data-trace-index="${index}" data-trace-field="line-width" />
-                  </div>
-                  <div class="field">
-                    <label for="publication-trace-dash-${index}">Line Dash</label>
-                    <select id="publication-trace-dash-${index}" data-trace-index="${index}" data-trace-field="line-dash">${dashOptions}</select>
-                  </div>
-                  ${markerControls}
-                </div>
-              </div>
-            </div>
-          `;
-        })
-        .join("");
+        const visibleInput = domUtils.el("input", {
+          attrs: {
+            type: "checkbox",
+            "data-trace-index": index,
+            "data-trace-field": "visible",
+          },
+          props: { checked: !(trace.visible === false || trace.visible === "legendonly") },
+        });
+        const title = domUtils.el("div", { className: "trace-editor-title" }, [
+          domUtils.el("span", { text: "Trace " + (index + 1) }),
+          domUtils.el("label", { className: "checkbox-row checkbox-row-compact" }, [
+            visibleInput,
+            "Visible",
+          ]),
+        ]);
+
+        const traceStyleGrid = domUtils.el("div", { className: "trace-style-grid" }, [
+          buildTraceInputField(index, "Line Color", "color", "color", traceColor),
+          buildTraceInputField(index, "Line Width", "line-width", "number", lineWidth, {
+            min: "0",
+            max: "20",
+            step: "0.2",
+          }),
+          buildTraceDashField(index, lineDash),
+        ]);
+
+        if (hasMarkerControls(trace)) {
+          traceStyleGrid.appendChild(
+            buildTraceInputField(index, "Marker Size", "marker-size", "number", markerSize, {
+              min: "0",
+              max: "40",
+              step: "0.5",
+            })
+          );
+        }
+
+        this.dom.traceList.appendChild(domUtils.el("div", { className: "trace-editor-card" }, [
+          title,
+          domUtils.el("div", { className: "field-grid" }, [
+            buildTraceInputField(index, "Trace Display Name", "name", "text", trace.name || ""),
+            traceStyleGrid,
+          ]),
+        ]));
+      });
     }
 
     bindTraceControls() {

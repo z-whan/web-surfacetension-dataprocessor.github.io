@@ -6,6 +6,8 @@
   const DEFAULT_TICK_FONT_SIZE = 12;
   const DEFAULT_LEGEND_FONT_SIZE = 12;
   const DEFAULT_AXIS_LINE_WIDTH = 1;
+  const DEFAULT_LEGEND_POSITION = "outside-top";
+  const DEFAULT_LEGEND_ORIENTATION = "h";
   const FALLBACK_TRACE_COLOR = "#2f5d8a";
   const LINE_DASHES = ["solid", "dash", "dot", "dashdot"];
   const FIGURE_PRESETS = {
@@ -18,7 +20,8 @@
       axisLineWidth: 1,
       showLegend: true,
       legendFontSize: 10,
-      legendPosition: "top-right",
+      legendPosition: DEFAULT_LEGEND_POSITION,
+      legendOrientation: DEFAULT_LEGEND_ORIENTATION,
     },
     "double-column": {
       label: "Double Column",
@@ -30,6 +33,7 @@
       showLegend: true,
       legendFontSize: 12,
       legendPosition: "outside-right",
+      legendOrientation: "v",
     },
     presentation: {
       label: "Presentation",
@@ -40,7 +44,8 @@
       axisLineWidth: 2,
       showLegend: true,
       legendFontSize: 18,
-      legendPosition: "top-right",
+      legendPosition: DEFAULT_LEGEND_POSITION,
+      legendOrientation: DEFAULT_LEGEND_ORIENTATION,
     },
     square: {
       label: "Square",
@@ -51,7 +56,8 @@
       axisLineWidth: 1.2,
       showLegend: true,
       legendFontSize: 12,
-      legendPosition: "top-right",
+      legendPosition: DEFAULT_LEGEND_POSITION,
+      legendOrientation: DEFAULT_LEGEND_ORIENTATION,
     },
     wide: {
       label: "Wide",
@@ -63,6 +69,7 @@
       showLegend: true,
       legendFontSize: 12,
       legendPosition: "outside-right",
+      legendOrientation: "v",
     },
   };
   const STYLE_TEMPLATES = {
@@ -74,7 +81,8 @@
         axisLineWidth: 1,
         showLegend: true,
         legendFontSize: 12,
-        legendPosition: "top-right",
+        legendPosition: DEFAULT_LEGEND_POSITION,
+        legendOrientation: DEFAULT_LEGEND_ORIENTATION,
       },
       layout: {
         "paper_bgcolor": "#ffffff",
@@ -103,6 +111,7 @@
         showLegend: true,
         legendFontSize: 10,
         legendPosition: "outside-right",
+        legendOrientation: "v",
       },
       layout: {
         "paper_bgcolor": "#ffffff",
@@ -132,7 +141,8 @@
         axisLineWidth: 1.8,
         showLegend: true,
         legendFontSize: 17,
-        legendPosition: "top-right",
+        legendPosition: DEFAULT_LEGEND_POSITION,
+        legendOrientation: DEFAULT_LEGEND_ORIENTATION,
       },
       layout: {
         "paper_bgcolor": "#ffffff",
@@ -160,7 +170,8 @@
         axisLineWidth: 0,
         showLegend: false,
         legendFontSize: 11,
-        legendPosition: "top-right",
+        legendPosition: DEFAULT_LEGEND_POSITION,
+        legendOrientation: DEFAULT_LEGEND_ORIENTATION,
       },
       layout: {
         "paper_bgcolor": "#ffffff",
@@ -268,13 +279,15 @@
       "bottom-right": { x: 1, y: 0, xanchor: "right", yanchor: "bottom" },
       "bottom-left": { x: 0, y: 0, xanchor: "left", yanchor: "bottom" },
       "outside-right": { x: 1.02, y: 1, xanchor: "left", yanchor: "top" },
+      "outside-top": { x: 0.5, y: 1.14, xanchor: "center", yanchor: "bottom", margin: { t: 96 } },
+      "outside-bottom": { x: 0.5, y: -0.34, xanchor: "center", yanchor: "top", margin: { b: 130 } },
     };
     return presets[preset] || null;
   }
 
   function inferLegendPreset(legend) {
     if (!legend) {
-      return "top-right";
+      return DEFAULT_LEGEND_POSITION;
     }
     const x = Number(legend.x);
     const y = Number(legend.y);
@@ -282,6 +295,16 @@
     const yanchor = legend.yanchor || "";
     const close = (a, b) => Math.abs(a - b) < 0.03;
 
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return DEFAULT_LEGEND_POSITION;
+    }
+
+    if (close(x, 0.5) && close(y, 1.14) && xanchor === "center" && yanchor === "bottom") {
+      return "outside-top";
+    }
+    if (close(x, 0.5) && close(y, -0.34) && xanchor === "center" && yanchor === "top") {
+      return "outside-bottom";
+    }
     if (close(x, 1.02) && close(y, 1) && xanchor === "left") {
       return "outside-right";
     }
@@ -447,6 +470,7 @@
         styleWarning: document.querySelector("[data-publication-style-warning]"),
         undoStyle: document.querySelector("#publication-undo-style"),
         title: document.querySelector("#publication-title"),
+        titleClear: document.querySelector("#publication-title-clear"),
         width: document.querySelector("#publication-width"),
         height: document.querySelector("#publication-height"),
         fontSize: document.querySelector("#publication-font-size"),
@@ -462,6 +486,7 @@
         showLegend: document.querySelector("#publication-show-legend"),
         legendFontSize: document.querySelector("#publication-legend-font-size"),
         legendPosition: document.querySelector("#publication-legend-position"),
+        legendOrientation: document.querySelector("#publication-legend-orientation"),
         legendX: document.querySelector("#publication-legend-x"),
         legendY: document.querySelector("#publication-legend-y"),
         traceList: document.querySelector("[data-publication-traces]"),
@@ -499,6 +524,7 @@
         this.dom.figurePreset,
         this.dom.styleTemplate,
         this.dom.undoStyle,
+        this.dom.titleClear,
         this.dom.batchLineWidth,
         this.dom.applyLineWidth,
         this.dom.batchMarkerSize,
@@ -655,9 +681,16 @@
       this.dom.yMax.value = Array.isArray(yaxis.range) ? yaxis.range[1] : "";
       this.dom.showLegend.checked = layout.showlegend !== false;
       this.dom.legendFontSize.value = toFiniteNumber(legend.font && legend.font.size, DEFAULT_LEGEND_FONT_SIZE);
-      this.dom.legendPosition.value = inferLegendPreset(legend);
-      this.dom.legendX.value = Number.isFinite(Number(legend.x)) ? legend.x : 1;
-      this.dom.legendY.value = Number.isFinite(Number(legend.y)) ? legend.y : 1;
+      const inferredLegendPosition = inferLegendPreset(legend);
+      const inferredLegendPreset = legendPresetToLayout(inferredLegendPosition);
+      this.dom.legendPosition.value = inferredLegendPosition;
+      this.dom.legendOrientation.value = legend.orientation === "v" ? "v" : DEFAULT_LEGEND_ORIENTATION;
+      this.dom.legendX.value = Number.isFinite(Number(legend.x))
+        ? legend.x
+        : (inferredLegendPreset && inferredLegendPreset.x) || 1;
+      this.dom.legendY.value = Number.isFinite(Number(legend.y))
+        ? legend.y
+        : (inferredLegendPreset && inferredLegendPreset.y) || 1;
     }
 
     bindLayoutControls() {
@@ -677,6 +710,7 @@
         this.dom.showLegend,
         this.dom.legendFontSize,
         this.dom.legendPosition,
+        this.dom.legendOrientation,
         this.dom.legendX,
         this.dom.legendY,
       ].forEach((element) => {
@@ -693,6 +727,17 @@
           this.applyLayoutControls({ userInitiated: true });
         });
       });
+
+      if (this.dom.titleClear) {
+        this.dom.titleClear.addEventListener("click", () => {
+          if (!this.hasFigure()) {
+            return;
+          }
+          this.dom.title.value = "";
+          this.applyLayoutControls({ userInitiated: true });
+          this.dom.title.focus();
+        });
+      }
     }
 
     bindPresetControls() {
@@ -727,6 +772,7 @@
       const axisLineWidth = Math.max(0, toFiniteNumber(this.dom.axisLineWidth.value, DEFAULT_AXIS_LINE_WIDTH));
       const legendFontSize = Math.max(6, toFiniteNumber(this.dom.legendFontSize.value, DEFAULT_LEGEND_FONT_SIZE));
       const legendPreset = legendPresetToLayout(this.dom.legendPosition.value);
+      const legendOrientation = this.dom.legendOrientation.value === "v" ? "v" : DEFAULT_LEGEND_ORIENTATION;
       const legendX = legendPreset ? legendPreset.x : toFiniteNumber(this.dom.legendX.value, 1);
       const legendY = legendPreset ? legendPreset.y : toFiniteNumber(this.dom.legendY.value, 1);
       const legendXAnchor = legendPreset ? legendPreset.xanchor : (this.state.layout.legend && this.state.layout.legend.xanchor) || "left";
@@ -753,11 +799,20 @@
         "yaxis.showline": axisLineWidth > 0,
         showlegend: this.dom.showLegend.checked,
         "legend.font.size": legendFontSize,
+        "legend.orientation": legendOrientation,
         "legend.x": legendX,
         "legend.y": legendY,
         "legend.xanchor": legendXAnchor,
         "legend.yanchor": legendYAnchor,
       };
+
+      if (legendPreset && legendPreset.margin) {
+        Object.keys(legendPreset.margin).forEach((key) => {
+          const path = `margin.${key}`;
+          const existing = this.state.layout.margin && Number(this.state.layout.margin[key]);
+          update[path] = Math.max(Number.isFinite(existing) ? existing : 0, legendPreset.margin[key]);
+        });
+      }
 
       this.applyRangeUpdate(update, "xaxis", this.dom.xMin.value, this.dom.xMax.value);
       this.applyRangeUpdate(update, "yaxis", this.dom.yMin.value, this.dom.yMax.value);
@@ -831,6 +886,9 @@
           this.dom.legendX.value = legendPreset.x;
           this.dom.legendY.value = legendPreset.y;
         }
+      }
+      if (values.legendOrientation) {
+        this.dom.legendOrientation.value = values.legendOrientation === "v" ? "v" : DEFAULT_LEGEND_ORIENTATION;
       }
     }
 

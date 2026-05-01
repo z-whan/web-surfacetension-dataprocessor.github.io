@@ -563,7 +563,17 @@
                 </div>
                 <div class="field">
                   <label for="publication-title">Figure Title</label>
-                  <input id="publication-title" type="text" />
+                  <div class="clearable-input">
+                    <input id="publication-title" type="text" />
+                    <button
+                      id="publication-title-clear"
+                      class="clear-input-button"
+                      type="button"
+                      aria-label="Clear figure title"
+                    >
+                      X
+                    </button>
+                  </div>
                 </div>
                 <div class="form-grid">
                   <div class="field">
@@ -644,16 +654,25 @@
                   <div class="field">
                     <label for="publication-legend-position">Legend Position</label>
                     <select id="publication-legend-position">
+                      <option value="outside-top">default (outside top)</option>
                       <option value="top-right">top right</option>
                       <option value="top-left">top left</option>
                       <option value="bottom-right">bottom right</option>
                       <option value="bottom-left">bottom left</option>
                       <option value="outside-right">outside right</option>
+                      <option value="outside-bottom">outside bottom</option>
                       <option value="custom">custom</option>
                     </select>
                   </div>
                 </div>
                 <div class="form-grid">
+                  <div class="field">
+                    <label for="publication-legend-orientation">Legend Orientation</label>
+                    <select id="publication-legend-orientation">
+                      <option value="h">horizontal</option>
+                      <option value="v">vertical</option>
+                    </select>
+                  </div>
                   <div class="field">
                     <label for="publication-legend-x">Legend X</label>
                     <input id="publication-legend-x" type="number" step="0.05" />

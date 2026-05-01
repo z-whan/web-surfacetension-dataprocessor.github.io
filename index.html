@@ -18,6 +18,7 @@
     <script src="./assets/js/config.js?v=20260424a" defer></script>
     <script src="./assets/js/python-sources.js?v=20260424a" defer></script>
     <script src="./assets/js/dom-utils.js?v=20260501a" defer></script>
+    <script src="./assets/js/downloads.js?v=20260501a" defer></script>
     <script src="./assets/js/charts.js?v=20260430b" defer></script>
     <script src="./assets/js/publication-plot.js?v=20260430a" defer></script>
     <script src="./assets/js/pyodide-client.js?v=20260424a" defer></script>
@@ -144,6 +145,33 @@
                 </div>
               </div>
             </div>
+
+            <details class="field-card collapsible-card">
+              <summary>Data Quality Diagnostics</summary>
+              <div class="collapsible-card-body">
+                <p>Check the selected time-series scope for missing values, timing problems, gaps, constant signals, and spikes.</p>
+                <div class="field-grid">
+                  <div class="button-row">
+                    <button
+                      id="plot-quality-run"
+                      class="primary-button"
+                      type="button"
+                      data-requires-runtime="true"
+                    >
+                      Analyze Data Quality
+                    </button>
+                    <button id="plot-quality-export" class="secondary-button" type="button" disabled>
+                      Export JSON
+                    </button>
+                  </div>
+                  <div class="info-box" data-plot-quality-status>No diagnostics have been run yet.</div>
+                  <div class="metric-grid" data-plot-quality-summary></div>
+                  <div data-plot-quality-warnings></div>
+                  <div data-plot-quality-metrics></div>
+                  <div data-plot-quality-actions></div>
+                </div>
+              </div>
+            </details>
 
             <details class="field-card collapsible-card">
               <summary>Trend Extraction</summary>

@@ -13,6 +13,7 @@ from web_bridge import (  # noqa: E402
     analyze_cmc_files,
     analyze_plot_file,
     analyze_plot_noise,
+    analyze_time_series_quality,
     extract_plot_trend,
     infer_concentration,
 )
@@ -33,6 +34,21 @@ class WebBridgeTests(unittest.TestCase):
             payload = analyze_plot_file(path, "", "", "", False)
             self.assertEqual(payload["summary"]["seriesCount"], 2)
             self.assertEqual(payload["rowRange"], [1, 3])
+        finally:
+            os.unlink(path)
+
+    def test_analyze_time_series_quality(self):
+        content = "Time (ms),I.T.(mN/m).1\n0,10\n1,11\n1,12\n5,100\n6,14\n7,15\n"
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8") as handle:
+            handle.write(content)
+            path = handle.name
+
+        try:
+            payload = analyze_time_series_quality(path, "", "", "1", False)
+            codes = {warning["code"] for warning in payload["warnings"]}
+            self.assertIn("duplicate-time-values", codes)
+            self.assertIn("large-time-gaps", codes)
+            self.assertEqual(payload["summary"]["seriesCount"], 1)
         finally:
             os.unlink(path)
 

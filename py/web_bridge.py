@@ -12,7 +12,11 @@ from DataProcessor.services.cmc_analysis import (
 from DataProcessor.services.dataframe_loader import load_plot_dataframe
 from DataProcessor.services.errors import DataProcessingError
 from DataProcessor.services.plot_analysis import prepare_plot_dataset
-from DataProcessor.services.time_series_analysis import analyze_noise, extract_trend_analysis
+from DataProcessor.services.time_series_analysis import (
+    analyze_noise,
+    analyze_time_series_quality as analyze_time_series_quality_dataset,
+    extract_trend_analysis,
+)
 
 
 def _finite_or_none(value: Any) -> float | int | str | None:
@@ -121,6 +125,31 @@ def analyze_plot_file(
             "yMax": _finite_or_none(y_max),
         },
     }
+
+
+def analyze_time_series_quality(
+    source_path: str,
+    start_text: str,
+    end_text: str,
+    exp_range_text: str,
+    avg_only: bool,
+    show_original_with_avg: bool = False,
+) -> dict[str, Any]:
+    dataset = _load_plot_dataset(
+        source_path,
+        start_text,
+        end_text,
+        exp_range_text,
+        avg_only,
+        show_original_with_avg,
+    )
+    return analyze_time_series_quality_dataset(
+        x_label=dataset.x_label,
+        x_values=dataset.x_values,
+        y_values=dataset.y_values,
+        row_range=dataset.row_range,
+        selection_label=dataset.exp_tag,
+    )
 
 
 def extract_plot_trend(

@@ -50,6 +50,292 @@ class NoiseAnalysisResult:
     plot_payload: dict[str, Any] | None = None
 
 
+def _json_number(value: Any) -> float | int | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, np.integer)):
+        return int(value)
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    return numeric if np.isfinite(numeric) else None
+
+
+def _append_quality_warning(
+    warnings: list[dict[str, Any]],
+    suggested_actions: list[str],
+    *,
+    code: str,
+    severity: str,
+    message: str,
+    action: str,
+) -> None:
+    warnings.append({"code": code, "severity": severity, "message": message})
+    if action not in suggested_actions:
+        suggested_actions.append(action)
+
+
+def _robust_outlier_count(values: np.ndarray) -> int:
+    finite = values[np.isfinite(values)]
+    if finite.size < 5:
+        return 0
+
+    median = float(np.median(finite))
+    mad = float(np.median(np.abs(finite - median)))
+    if mad > 0:
+        robust_z = np.abs(finite - median) / (1.4826 * mad)
+        return int((robust_z > 6).sum())
+
+    median_deviation = np.abs(finite - median)
+    fallback_threshold = max(abs(median) * 0.5, 1e-9)
+    if median_deviation.max(initial=0) > fallback_threshold:
+        return int((median_deviation > fallback_threshold).sum())
+
+    std = float(np.std(finite))
+    if std <= 0:
+        return 0
+    z_score = np.abs(finite - float(np.mean(finite))) / std
+    return int((z_score > 6).sum())
+
+
+def _signal_quality_metrics(series_name: str, values: np.ndarray) -> dict[str, Any]:
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return {
+            "series": series_name,
+            "validCount": 0,
+            "missingCount": int(values.size),
+            "min": None,
+            "max": None,
+            "mean": None,
+            "median": None,
+            "std": None,
+            "range": None,
+            "outlierCount": 0,
+            "nearConstant": False,
+        }
+
+    min_value = float(np.min(finite))
+    max_value = float(np.max(finite))
+    median = float(np.median(finite))
+    std = float(np.std(finite))
+    spread = max_value - min_value
+    near_constant_threshold = max(abs(median) * 1e-6, 1e-9)
+
+    return {
+        "series": series_name,
+        "validCount": int(finite.size),
+        "missingCount": int(values.size - finite.size),
+        "min": _json_number(min_value),
+        "max": _json_number(max_value),
+        "mean": _json_number(np.mean(finite)),
+        "median": _json_number(median),
+        "std": _json_number(std),
+        "range": _json_number(spread),
+        "outlierCount": _robust_outlier_count(values),
+        "nearConstant": bool(finite.size >= 3 and spread <= near_constant_threshold),
+    }
+
+
+def analyze_time_series_quality(
+    *,
+    x_label: str,
+    x_values: pd.Series,
+    y_values: pd.DataFrame,
+    row_range: tuple[int, int] | None = None,
+    selection_label: str | None = None,
+) -> dict[str, Any]:
+    """Inspect selected time-series data for common quality issues."""
+    x_numeric = pd.to_numeric(x_values, errors="coerce").to_numpy(dtype=float)
+    y_numeric = y_values.apply(lambda series: pd.to_numeric(series, errors="coerce"))
+    y_array = y_numeric.to_numpy(dtype=float)
+
+    warnings: list[dict[str, Any]] = []
+    suggested_actions: list[str] = []
+    row_count = int(len(x_numeric))
+    series_count = int(len(y_numeric.columns))
+
+    if row_count == 0 or series_count == 0:
+        raise DataProcessingError("No valid data is selected for diagnostics.")
+
+    finite_time = np.isfinite(x_numeric)
+    finite_signal_any = np.isfinite(y_array).any(axis=1)
+    valid_rows = finite_time & finite_signal_any
+    valid_row_count = int(valid_rows.sum())
+
+    missing_time_count = int(row_count - finite_time.sum())
+    missing_signal_count = int(np.size(y_array) - np.isfinite(y_array).sum())
+    if missing_time_count or missing_signal_count:
+        _append_quality_warning(
+            warnings,
+            suggested_actions,
+            code="missing-or-nonnumeric-values",
+            severity="warning",
+            message=(
+                f"Found {missing_time_count} missing/non-numeric time value(s) and "
+                f"{missing_signal_count} missing/non-numeric signal value(s)."
+            ),
+            action="Review missing values, headers, and numeric formatting before running deeper analysis.",
+        )
+
+    if valid_row_count < 5:
+        _append_quality_warning(
+            warnings,
+            suggested_actions,
+            code="too-few-points",
+            severity="error",
+            message=f"Only {valid_row_count} row(s) contain both time and signal values.",
+            action="Select a wider row range or provide a dataset with at least five valid points.",
+        )
+
+    x_finite = x_numeric[finite_time]
+    duplicate_time_count = 0
+    negative_interval_count = 0
+    zero_interval_count = 0
+    irregular_interval_count = 0
+    large_gap_count = 0
+    interval_metrics = {
+        "count": 0,
+        "median": None,
+        "min": None,
+        "max": None,
+        "irregularCount": 0,
+        "largeGapCount": 0,
+    }
+
+    if x_finite.size >= 2:
+        _, duplicate_counts = np.unique(x_finite, return_counts=True)
+        duplicate_time_count = int(np.clip(duplicate_counts - 1, 0, None).sum())
+        diffs = np.diff(x_finite)
+        negative_interval_count = int((diffs < 0).sum())
+        zero_interval_count = int(np.isclose(diffs, 0.0, rtol=1e-12, atol=1e-12).sum())
+        positive_diffs = diffs[diffs > 0]
+
+        if positive_diffs.size:
+            median_interval = float(np.median(positive_diffs))
+            min_interval = float(np.min(positive_diffs))
+            max_interval = float(np.max(positive_diffs))
+            if median_interval > 0:
+                relative_deviation = np.abs(positive_diffs - median_interval) / median_interval
+                irregular_interval_count = int((relative_deviation > 0.2).sum())
+                large_gap_count = int((positive_diffs > median_interval * 3).sum())
+            interval_metrics = {
+                "count": int(positive_diffs.size),
+                "median": _json_number(median_interval),
+                "min": _json_number(min_interval),
+                "max": _json_number(max_interval),
+                "irregularCount": irregular_interval_count,
+                "largeGapCount": large_gap_count,
+            }
+
+    if negative_interval_count:
+        _append_quality_warning(
+            warnings,
+            suggested_actions,
+            code="non-monotonic-time-axis",
+            severity="warning",
+            message=f"Found {negative_interval_count} decreasing time interval(s).",
+            action="Sort rows by time or split separate runs before trend/noise analysis.",
+        )
+
+    if duplicate_time_count:
+        _append_quality_warning(
+            warnings,
+            suggested_actions,
+            code="duplicate-time-values",
+            severity="warning",
+            message=f"Found {duplicate_time_count} duplicate time value(s).",
+            action="Remove duplicate timestamps or average repeated measurements intentionally.",
+        )
+
+    if irregular_interval_count:
+        _append_quality_warning(
+            warnings,
+            suggested_actions,
+            code="irregular-sampling-interval",
+            severity="info",
+            message=f"Found {irregular_interval_count} interval(s) that differ from the median by more than 20%.",
+            action="Use methods that tolerate irregular sampling or resample to a regular grid.",
+        )
+
+    if large_gap_count:
+        _append_quality_warning(
+            warnings,
+            suggested_actions,
+            code="large-time-gaps",
+            severity="warning",
+            message=f"Found {large_gap_count} gap(s) larger than three times the median interval.",
+            action="Inspect large gaps and consider analyzing continuous segments separately.",
+        )
+
+    signal_metrics = [
+        _signal_quality_metrics(str(column), y_numeric[column].to_numpy(dtype=float))
+        for column in y_numeric.columns
+    ]
+
+    constant_series = [item["series"] for item in signal_metrics if item["nearConstant"]]
+    if constant_series:
+        _append_quality_warning(
+            warnings,
+            suggested_actions,
+            code="near-constant-signal",
+            severity="warning",
+            message="Near-constant signal detected in: " + ", ".join(constant_series),
+            action="Confirm the selected signal column and row range are correct.",
+        )
+
+    outlier_series = [item for item in signal_metrics if item["outlierCount"] > 0]
+    if outlier_series:
+        total_outliers = sum(int(item["outlierCount"]) for item in outlier_series)
+        _append_quality_warning(
+            warnings,
+            suggested_actions,
+            code="extreme-outliers-or-spikes",
+            severity="warning",
+            message=f"Found {total_outliers} extreme outlier/spike candidate(s) across selected series.",
+            action="Inspect spikes in the raw data before smoothing, trend extraction, or PSD analysis.",
+        )
+
+    if not suggested_actions:
+        suggested_actions.append("No immediate cleanup is suggested for this selection.")
+
+    metrics = {
+        "rowCount": row_count,
+        "validRowCount": valid_row_count,
+        "seriesCount": series_count,
+        "missingTimeCount": missing_time_count,
+        "missingSignalValueCount": missing_signal_count,
+        "duplicateTimeCount": duplicate_time_count,
+        "nonMonotonicIntervalCount": negative_interval_count,
+        "zeroIntervalCount": zero_interval_count,
+        "samplingInterval": interval_metrics,
+        "signals": signal_metrics,
+    }
+
+    summary = {
+        "status": "warnings" if warnings else "clean",
+        "message": (
+            f"Data quality diagnostics found {len(warnings)} issue(s)."
+            if warnings
+            else "Data quality diagnostics found no obvious issues."
+        ),
+        "xLabel": x_label,
+        "rowRange": list(row_range) if row_range is not None else None,
+        "selection": selection_label,
+        "rowCount": row_count,
+        "validRowCount": valid_row_count,
+        "seriesCount": series_count,
+    }
+
+    return {
+        "summary": summary,
+        "warnings": warnings,
+        "metrics": metrics,
+        "suggestedActions": suggested_actions,
+    }
+
+
 def _coerce_numeric_series(series: pd.Series) -> pd.Series:
     return pd.to_numeric(series, errors="coerce")
 

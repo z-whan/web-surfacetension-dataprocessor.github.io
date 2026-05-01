@@ -1,5 +1,6 @@
 (function () {
   const domUtils = window.SurfaceLabDomUtils;
+  const downloads = window.SurfaceLabDownloads;
 
   const TREND_METHODS = {
     moving_average: {
@@ -354,6 +355,53 @@
     );
   }
 
+  function renderKeyValueTable(rows) {
+    if (!rows.length) {
+      return domUtils.el("div", { className: "empty-state", text: "No metrics available." });
+    }
+
+    const body = domUtils.el("tbody");
+    rows.forEach((row) => {
+      body.appendChild(domUtils.el("tr", {}, [
+        domUtils.el("td", { text: row.label }),
+        domUtils.el("td", { text: row.value }),
+      ]));
+    });
+
+    const table = domUtils.el("table", {}, [
+      domUtils.el("tbody", {}, Array.from(body.childNodes)),
+    ]);
+    return domUtils.el("div", { className: "table-scroll" }, [table]);
+  }
+
+  function renderTextList(title, items, emptyText) {
+    const section = domUtils.el("div", { className: "info-box" }, [
+      domUtils.el("strong", { text: title }),
+    ]);
+
+    if (!items.length) {
+      section.appendChild(domUtils.el("p", { text: emptyText }));
+      return section;
+    }
+
+    const list = domUtils.el("ul");
+    items.forEach((item) => {
+      list.appendChild(domUtils.el("li", { text: item }));
+    });
+    section.appendChild(list);
+    return section;
+  }
+
+  function formatMetricValue(value) {
+    if (value === null || typeof value === "undefined") {
+      return "—";
+    }
+    if (typeof value === "boolean") {
+      return value ? "Yes" : "No";
+    }
+    return formatValue(value);
+  }
+
   class TimeSeriesModuleController {
     constructor(options) {
       this.config = options.config;
@@ -373,6 +421,7 @@
         trendPayload: null,
         trendRequest: null,
         noisePayload: null,
+        qualityPayload: null,
         showRaw: true,
         manualYRange: null,
       };
@@ -401,6 +450,13 @@
         trendApply: document.querySelector("#plot-trend-apply"),
         showRawToggle: document.querySelector("#plot-show-raw"),
         trendStatus: document.querySelector("[data-plot-trend-status]"),
+        qualityAnalyze: document.querySelector("#plot-quality-run"),
+        qualityExport: document.querySelector("#plot-quality-export"),
+        qualityStatus: document.querySelector("[data-plot-quality-status]"),
+        qualitySummary: document.querySelector("[data-plot-quality-summary]"),
+        qualityWarnings: document.querySelector("[data-plot-quality-warnings]"),
+        qualityMetrics: document.querySelector("[data-plot-quality-metrics]"),
+        qualityActions: document.querySelector("[data-plot-quality-actions]"),
         noiseMethod: document.querySelector("#plot-noise-method"),
         noiseParams: document.querySelector("#plot-noise-params"),
         noiseAnalyze: document.querySelector("#plot-noise-run"),
@@ -426,6 +482,7 @@
       renderParameterFields(this.dom.noiseParams, NOISE_METHODS[this.dom.noiseMethod.value]);
       renderHelpContent(this.dom.helpContent);
       this.renderTrendStatus("No trend has been applied yet.");
+      this.renderQualityDiagnostics(null);
       this.renderNoiseOutput(null);
       this.updateYSpanLabel();
       this.syncAvgOverlayOption();
@@ -454,6 +511,12 @@
       this.dom.plotMarkCompare.addEventListener("click", () => this.handleMarkForCompare());
       this.dom.trendApply.addEventListener("click", () => {
         this.withRuntime(() => this.applyTrend())();
+      });
+      this.dom.qualityAnalyze.addEventListener("click", () => {
+        this.withRuntime(() => this.runQualityDiagnostics())();
+      });
+      this.dom.qualityExport.addEventListener("click", () => {
+        this.exportQualityDiagnostics();
       });
       this.dom.noiseAnalyze.addEventListener("click", () => {
         this.withRuntime(() => this.runNoise())();
@@ -519,6 +582,7 @@
       this.state.trendPayload = null;
       this.state.trendRequest = null;
       this.state.noisePayload = null;
+      this.state.qualityPayload = null;
       this.state.showRaw = true;
       this.state.manualYRange = null;
       this.dom.showRawToggle.checked = true;
@@ -528,6 +592,7 @@
       this.dom.plotSendPublication.disabled = true;
       this.renderPlotSummary(null);
       this.renderTrendStatus("No trend has been applied yet.");
+      this.renderQualityDiagnostics(null);
       this.renderNoiseOutput(null);
       this.resetYRangeControls();
       this.charts.clearPlot(this.dom.plotCanvas);
@@ -864,6 +929,32 @@
       }
     }
 
+    async runQualityDiagnostics() {
+      if (!this.state.file) {
+        throw new Error("Choose a data file before running data quality diagnostics.");
+      }
+
+      const args = this.currentSelectionArgs();
+      const staged = await this.pyodideClient.stageBrowserFile(this.state.file, "plot-quality");
+
+      try {
+        const payload = await this.pyodideClient.callBridge(
+          "analyze_time_series_quality",
+          staged.fsPath,
+          args.startText,
+          args.endText,
+          args.expRangeText,
+          args.avgOnly,
+          args.showOriginalWithAvg
+        );
+        this.state.qualityPayload = payload;
+        this.renderQualityDiagnostics(payload);
+        this.setStatus(`Data quality diagnostics completed for ${this.state.file.name}.`);
+      } finally {
+        this.pyodideClient.removeFsFile(staged.fsPath);
+      }
+    }
+
     async runNoise() {
       const rawPayload = await this.loadRawPayload();
       const methodKey = this.dom.noiseMethod.value;
@@ -928,6 +1019,107 @@
 
     renderTrendStatus(text) {
       this.dom.trendStatus.textContent = text;
+    }
+
+    renderQualityDiagnostics(payload) {
+      this.state.qualityPayload = payload;
+      domUtils.clear(this.dom.qualitySummary);
+      domUtils.clear(this.dom.qualityWarnings);
+      domUtils.clear(this.dom.qualityMetrics);
+      domUtils.clear(this.dom.qualityActions);
+      this.dom.qualityExport.disabled = !payload;
+
+      if (!payload) {
+        this.dom.qualityStatus.textContent = "No diagnostics have been run yet.";
+        return;
+      }
+
+      this.dom.qualityStatus.textContent = payload.summary.message;
+      renderMetricCards(this.dom.qualitySummary, [
+        { label: "Status", value: payload.summary.status === "clean" ? "Clean" : "Warnings" },
+        { label: "Rows", value: payload.summary.rowCount },
+        { label: "Valid Rows", value: payload.summary.validRowCount },
+        { label: "Series", value: payload.summary.seriesCount },
+      ]);
+
+      const warnings = payload.warnings || [];
+      const warningMessages = warnings.map((warning) => {
+        const severity = String(warning.severity || "info").toUpperCase();
+        return `${severity}: ${warning.message}`;
+      });
+      this.dom.qualityWarnings.appendChild(renderTextList(
+        "Warnings",
+        warningMessages,
+        "No warnings for the selected data."
+      ));
+
+      const metrics = payload.metrics || {};
+      const sampling = metrics.samplingInterval || {};
+      const rows = [
+        { label: "Missing time values", value: metrics.missingTimeCount },
+        { label: "Missing signal values", value: metrics.missingSignalValueCount },
+        { label: "Duplicate time values", value: metrics.duplicateTimeCount },
+        { label: "Non-monotonic intervals", value: metrics.nonMonotonicIntervalCount },
+        { label: "Zero-length intervals", value: metrics.zeroIntervalCount },
+        { label: "Median sampling interval", value: sampling.median },
+        { label: "Minimum sampling interval", value: sampling.min },
+        { label: "Maximum sampling interval", value: sampling.max },
+        { label: "Irregular intervals", value: sampling.irregularCount },
+        { label: "Large gaps", value: sampling.largeGapCount },
+      ].map((row) => ({
+        label: row.label,
+        value: formatMetricValue(row.value),
+      }));
+
+      (metrics.signals || []).forEach((signal) => {
+        rows.push({
+          label: `${signal.series} valid points`,
+          value: formatMetricValue(signal.validCount),
+        });
+        rows.push({
+          label: `${signal.series} mean / std`,
+          value: `${formatMetricValue(signal.mean)} / ${formatMetricValue(signal.std)}`,
+        });
+        rows.push({
+          label: `${signal.series} min / max`,
+          value: `${formatMetricValue(signal.min)} / ${formatMetricValue(signal.max)}`,
+        });
+        rows.push({
+          label: `${signal.series} outliers`,
+          value: formatMetricValue(signal.outlierCount),
+        });
+        rows.push({
+          label: `${signal.series} near constant`,
+          value: formatMetricValue(signal.nearConstant),
+        });
+      });
+
+      this.dom.qualityMetrics.appendChild(renderKeyValueTable(rows));
+      this.dom.qualityActions.appendChild(renderTextList(
+        "Suggested Actions",
+        payload.suggestedActions || [],
+        "No suggested actions."
+      ));
+    }
+
+    exportQualityDiagnostics() {
+      if (!this.state.qualityPayload) {
+        return;
+      }
+
+      const filenameBase = this.state.file
+        ? this.state.file.name.replace(/\.[^.]+$/, "")
+        : "time-series";
+      const safeName = filenameBase
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9-_]+/g, "-")
+        .replace(/^-+|-+$/g, "") || "time-series";
+      downloads.downloadText(
+        `${safeName}-data-quality.json`,
+        JSON.stringify(this.state.qualityPayload, null, 2),
+        "application/json;charset=utf-8"
+      );
     }
 
     async renderCurrentPlot() {

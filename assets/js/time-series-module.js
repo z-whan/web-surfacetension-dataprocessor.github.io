@@ -884,7 +884,7 @@
           args.showOriginalWithAvg
         );
         this.state.rawPayload = payload;
-        if (!this.dom.plotExpRange.value && payload.defaultExpRange) {
+        if (payload.defaultExpRange) {
           this.dom.plotExpRange.value = payload.defaultExpRange;
         }
         return payload;

@@ -4,11 +4,19 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
+
 ROOT = Path(__file__).resolve().parents[1]
 PY_ROOT = ROOT / "py"
 if str(PY_ROOT) not in sys.path:
     sys.path.insert(0, str(PY_ROOT))
 
+from DataProcessor.services.plot_analysis import (  # noqa: E402
+    detect_non_empty_experiments,
+    first_data_cell_has_value,
+    format_experiment_range,
+)
 from web_bridge import (  # noqa: E402
     analyze_cmc_files,
     analyze_plot_file,
@@ -20,6 +28,11 @@ from web_bridge import (  # noqa: E402
 
 
 class WebBridgeTests(unittest.TestCase):
+    def _write_temp_csv(self, content: str) -> str:
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8") as handle:
+            handle.write(content)
+            return handle.name
+
     def test_infer_concentration(self):
         result = infer_concentration("sample-12.5mM.csv")
         self.assertEqual(result["value"], 12.5)
@@ -34,6 +47,124 @@ class WebBridgeTests(unittest.TestCase):
             payload = analyze_plot_file(path, "", "", "", False)
             self.assertEqual(payload["summary"]["seriesCount"], 2)
             self.assertEqual(payload["rowRange"], [1, 3])
+        finally:
+            os.unlink(path)
+
+    def test_analyze_plot_file_skips_empty_tail_experiments(self):
+        headers = ["Time (ms)"] + [f"I.T.(mN/m).{idx}" for idx in range(1, 11)]
+        rows = [
+            ["0", "10", "11", "12", "13", "", "", "", "", "", ""],
+            ["1", "20", "21", "22", "23", "", "", "", "", "", ""],
+            ["2", "30", "31", "32", "33", "", "", "", "", "", ""],
+        ]
+        content = ",".join(headers) + "\n" + "\n".join(",".join(row) for row in rows) + "\n"
+        path = self._write_temp_csv(content)
+
+        try:
+            payload = analyze_plot_file(path, "", "", "1-10", False)
+            self.assertEqual(payload["defaultExpRange"], "1-4")
+            self.assertEqual(payload["summary"]["seriesCount"], 4)
+            self.assertEqual([series["name"] for series in payload["series"]], headers[1:5])
+        finally:
+            os.unlink(path)
+
+    def test_analyze_plot_file_formats_sparse_detected_experiments(self):
+        content = (
+            "Time (ms),I.T.(mN/m).1,I.T.(mN/m).2,I.T.(mN/m).3,I.T.(mN/m).4,"
+            "I.T.(mN/m).5,I.T.(mN/m).6,I.T.(mN/m).7\n"
+            "0,10,20,,40,,,70\n"
+            "1,11,21,,41,,,71\n"
+        )
+        path = self._write_temp_csv(content)
+
+        try:
+            payload = analyze_plot_file(path, "", "", "1-7", False)
+            self.assertEqual(payload["defaultExpRange"], "1-2,4,7")
+            self.assertEqual([series["name"] for series in payload["series"]], [
+                "I.T.(mN/m).1",
+                "I.T.(mN/m).2",
+                "I.T.(mN/m).4",
+                "I.T.(mN/m).7",
+            ])
+        finally:
+            os.unlink(path)
+
+    def test_analyze_plot_file_treats_zero_first_cell_as_non_empty(self):
+        content = "Time (ms),I.T.(mN/m).1,I.T.(mN/m).2\n0,0,\n1,1,\n"
+        path = self._write_temp_csv(content)
+
+        try:
+            payload = analyze_plot_file(path, "", "", "1-2", False)
+            self.assertEqual(payload["defaultExpRange"], "1")
+            self.assertEqual(payload["summary"]["seriesCount"], 1)
+            self.assertEqual(payload["series"][0]["y"], [0, 1])
+        finally:
+            os.unlink(path)
+
+    def test_analyze_plot_file_treats_symbol_first_cell_as_non_empty(self):
+        content = "Time (ms),I.T.(mN/m).1,I.T.(mN/m).2\n0,ERR,\n1,12,\n"
+        path = self._write_temp_csv(content)
+
+        try:
+            payload = analyze_plot_file(path, "", "", "1-2", False)
+            self.assertEqual(payload["defaultExpRange"], "1")
+            self.assertEqual(payload["summary"]["seriesCount"], 1)
+            self.assertEqual(payload["series"][0]["y"], [12])
+        finally:
+            os.unlink(path)
+
+    def test_empty_first_cells_are_detected_as_empty(self):
+        df = pd.DataFrame({
+            "I.T.(mN/m).1": [""],
+            "I.T.(mN/m).2": [None],
+            "I.T.(mN/m).3": [np.nan],
+            "I.T.(mN/m).4": ["  "],
+            "I.T.(mN/m).5": [0],
+        })
+
+        self.assertFalse(first_data_cell_has_value(""))
+        self.assertFalse(first_data_cell_has_value(None))
+        self.assertFalse(first_data_cell_has_value(np.nan))
+        self.assertTrue(first_data_cell_has_value(0))
+        self.assertTrue(first_data_cell_has_value("ERR"))
+        self.assertEqual(
+            detect_non_empty_experiments(df, list(df.columns)),
+            [5],
+        )
+        self.assertEqual(format_experiment_range([1, 2, 4, 7]), "1-2,4,7")
+
+    def test_analyze_plot_file_raises_when_no_selected_experiments_have_data(self):
+        content = "Time (ms),I.T.(mN/m).1,I.T.(mN/m).2\n0,,\n1,,\n"
+        path = self._write_temp_csv(content)
+
+        try:
+            with self.assertRaisesRegex(
+                Exception,
+                "No non-empty experiments were detected in the selected data.",
+            ):
+                analyze_plot_file(path, "", "", "1-2", False)
+        finally:
+            os.unlink(path)
+
+    def test_famas_loader_preserves_symbol_for_non_empty_detection(self):
+        content = (
+            ",1,2\n"
+            "時間(ms),I.T.(mN/m),I.T.(mN/m)\n"
+            "0,ERR,\n"
+            "1,12,\n"
+            "2,13,\n"
+            "3,14,\n"
+            "4,15,\n"
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="shift_jis") as handle:
+            handle.write(content)
+            path = handle.name
+
+        try:
+            payload = analyze_plot_file(path, "", "", "1-2", False)
+            self.assertEqual(payload["defaultExpRange"], "1")
+            self.assertEqual(payload["summary"]["seriesCount"], 1)
+            self.assertEqual(payload["series"][0]["name"], "I.T.(mN/m).1")
         finally:
             os.unlink(path)
 

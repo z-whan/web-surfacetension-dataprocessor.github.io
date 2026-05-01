@@ -154,15 +154,13 @@ def try_parse_famas_multi_experiment_csv(csv_path: str) -> pd.DataFrame | None:
     )
 
     for exp_num, col_idx in experiment_cols:
-        out[f"I.T.(mN/m).{exp_num}"] = pd.to_numeric(
-            [row[col_idx] if col_idx < len(row) else "" for row in data_rows],
-            errors="coerce",
+        out[f"I.T.(mN/m).{exp_num}"] = pd.Series(
+            [row[col_idx] if col_idx < len(row) else "" for row in data_rows]
         )
 
     if avg_idx is not None:
-        out["Avg"] = pd.to_numeric(
-            [row[avg_idx] if avg_idx < len(row) else "" for row in data_rows],
-            errors="coerce",
+        out["Avg"] = pd.Series(
+            [row[avg_idx] if avg_idx < len(row) else "" for row in data_rows]
         )
 
     df = pd.DataFrame(out)

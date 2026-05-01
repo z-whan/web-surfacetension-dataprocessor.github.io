@@ -130,6 +130,64 @@ def parse_experiment_range(range_text: str, n_experiments: int) -> list[int]:
     return selected
 
 
+def format_experiment_range(indexes: Sequence[int]) -> str:
+    cleaned = sorted({int(idx) for idx in indexes})
+    if not cleaned:
+        return ""
+
+    parts: list[str] = []
+    start = cleaned[0]
+    previous = cleaned[0]
+
+    for idx in cleaned[1:]:
+        if idx == previous + 1:
+            previous = idx
+            continue
+
+        parts.append(f"{start}-{previous}" if start != previous else str(start))
+        start = previous = idx
+
+    parts.append(f"{start}-{previous}" if start != previous else str(start))
+    return ",".join(parts)
+
+
+def first_data_cell_has_value(value: object) -> bool:
+    if value is None:
+        return False
+    try:
+        if pd.isna(value):
+            return False
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, str):
+        return value.strip() != ""
+    return True
+
+
+def detect_non_empty_experiments(df: pd.DataFrame, ordered_it_cols: Sequence[object]) -> list[int]:
+    if df.empty:
+        return []
+
+    detected: list[int] = []
+    for idx, col in enumerate(ordered_it_cols, start=1):
+        if col not in df.columns:
+            continue
+        if first_data_cell_has_value(df[col].iloc[0]):
+            detected.append(idx)
+    return detected
+
+
+def _filter_selected_non_empty_experiments(
+    selected_indexes: Sequence[int],
+    non_empty_indexes: Sequence[int],
+) -> list[int]:
+    non_empty = set(non_empty_indexes)
+    filtered = [idx for idx in selected_indexes if idx in non_empty]
+    if not filtered:
+        raise DataProcessingError("No non-empty experiments were detected in the selected data.")
+    return filtered
+
+
 def _find_longest_true_run(mask: np.ndarray) -> tuple[int, int] | None:
     best: tuple[int, int] | None = None
     run_start: int | None = None
@@ -209,6 +267,7 @@ def prepare_plot_dataset(
 
     ordered_it_cols, avg_col = _extract_it_columns_and_avg(df.columns)
     n_experiments = len(ordered_it_cols)
+    non_empty_indexes = detect_non_empty_experiments(df, ordered_it_cols)
 
     default_range: str | None = None
 
@@ -218,7 +277,9 @@ def prepare_plot_dataset(
                 raise DataProcessingError("No I.T.(mN/m) experiment columns found.")
 
             selected_indexes = parse_experiment_range(exp_range_text, n_experiments)
-            resolved_range_text = exp_range_text.strip()
+            selected_indexes = _filter_selected_non_empty_experiments(selected_indexes, non_empty_indexes)
+            resolved_range_text = format_experiment_range(selected_indexes)
+            default_range = resolved_range_text
             selected_cols = [ordered_it_cols[idx - 1] for idx in selected_indexes]
             selected_numeric = df[selected_cols].apply(
                 lambda series: pd.to_numeric(series, errors="coerce")
@@ -259,12 +320,13 @@ def prepare_plot_dataset(
             )
 
         if not exp_range_text.strip():
-            default_range = f"1-{n_experiments}"
             selected_indexes = list(range(1, n_experiments + 1))
-            resolved_range_text = default_range
         else:
             selected_indexes = parse_experiment_range(exp_range_text, n_experiments)
-            resolved_range_text = exp_range_text.strip()
+
+        selected_indexes = _filter_selected_non_empty_experiments(selected_indexes, non_empty_indexes)
+        resolved_range_text = format_experiment_range(selected_indexes)
+        default_range = resolved_range_text
 
         selected_cols = [ordered_it_cols[idx - 1] for idx in selected_indexes]
         y_numeric = df[selected_cols].apply(lambda series: pd.to_numeric(series, errors="coerce"))

@@ -583,6 +583,60 @@
         height: this.state.exportSettings.height,
       });
     }
+
+    getSessionState() {
+      return deepCopy(this.state);
+    }
+
+    async restoreSessionState(sessionState) {
+      const warnings = [];
+      const input = sessionState && typeof sessionState === "object" ? sessionState : {};
+      const data = Array.isArray(input.data) ? deepCopy(input.data) : [];
+      const layout = input.layout && typeof input.layout === "object" ? deepCopy(input.layout) : {};
+      const config = input.config && typeof input.config === "object"
+        ? deepCopy(input.config)
+        : { responsive: true, displaylogo: false, editable: false };
+      const exportSettings = input.exportSettings && typeof input.exportSettings === "object"
+        ? deepCopy(input.exportSettings)
+        : {};
+
+      this.state = {
+        sourceType: typeof input.sourceType === "string" ? input.sourceType : "imported-session",
+        sourceTitle: typeof input.sourceTitle === "string" ? input.sourceTitle : "Imported session",
+        filenameBase: typeof input.filenameBase === "string" ? input.filenameBase : "publication-plot",
+        data,
+        layout,
+        config: {
+          ...config,
+          responsive: true,
+          displaylogo: false,
+          editable: false,
+        },
+        exportSettings: {
+          width: toFiniteNumber(exportSettings.width || layout.width, DEFAULT_WIDTH),
+          height: toFiniteNumber(exportSettings.height || layout.height, DEFAULT_HEIGHT),
+        },
+      };
+
+      if (!this.hasFigure()) {
+        warnings.push("Publication Plot did not contain trace data to restore.");
+        this.renderTraceControls();
+        this.syncEnabledState();
+        this.setPublicationStatus("No publication figure was restored from the session.");
+        await this.render();
+        return warnings;
+      }
+
+      this.state.layout.width = this.state.exportSettings.width;
+      this.state.layout.height = this.state.exportSettings.height;
+      this.state.layout.autosize = false;
+      this.syncControlsFromFigure();
+      this.renderTraceControls();
+      await this.render();
+      this.syncEnabledState();
+      this.setPublicationStatus("Publication Plot restored from imported session.");
+      return warnings;
+    }
   }
 
   window.SurfaceLabPublicationPlot = {

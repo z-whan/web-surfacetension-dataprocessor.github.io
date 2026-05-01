@@ -2,6 +2,8 @@
   const config = window.SurfaceLabConfig;
   const charts = window.SurfaceLabCharts;
   const pyodideClient = window.SurfaceLabPyodide;
+  const downloads = window.SurfaceLabDownloads;
+  const sessionManager = window.SurfaceLabSessionManager;
 
   const state = {
     runtimeReady: false,
@@ -18,6 +20,9 @@
     errorText: document.querySelector("[data-error-text]"),
     actionButtons: Array.from(document.querySelectorAll("[data-requires-runtime='true']")),
     runtimeRetry: document.querySelector("#runtime-retry"),
+    sessionExport: document.querySelector("#session-export"),
+    sessionImportButton: document.querySelector("#session-import-button"),
+    sessionImportFile: document.querySelector("#session-import-file"),
     tabButtons: Array.from(document.querySelectorAll("[data-tab-button]")),
     panels: Array.from(document.querySelectorAll("[data-tab-panel]")),
 
@@ -244,6 +249,74 @@
     });
   }
 
+  function sessionFilename() {
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    return `surface-lab-session-${stamp}.json`;
+  }
+
+  function exportSession() {
+    clearError();
+    const session = sessionManager.createSession({
+      timeSeries: timeSeriesController ? timeSeriesController.getSessionState() : {},
+      compare: compareController ? compareController.getSessionState() : {},
+      publication: publicationController ? publicationController.getSessionState() : {},
+    });
+    downloads.downloadText(
+      sessionFilename(),
+      JSON.stringify(session, null, 2),
+      "application/json;charset=utf-8"
+    );
+    const warningText = session.warnings.length
+      ? ` Warnings: ${session.warnings.join(" ")}`
+      : "";
+    setStatus("Session exported as JSON." + warningText);
+  }
+
+  async function restoreSession(session) {
+    const warnings = [];
+    if (timeSeriesController && session.timeSeries) {
+      warnings.push(...timeSeriesController.restoreSessionState(session.timeSeries));
+    }
+    if (compareController && session.compare) {
+      warnings.push(...(await compareController.restoreSessionState(session.compare)));
+    }
+    if (publicationController && session.publication) {
+      warnings.push(...(await publicationController.restoreSessionState(session.publication)));
+    }
+    if (warnings.length || (session.warnings && session.warnings.length)) {
+      showError(
+        "Session imported with warnings: " +
+          (session.warnings || []).concat(warnings).join(" ")
+      );
+    } else {
+      clearError();
+    }
+    setStatus("Session imported. Supported Time Series, Compare, and Publication Plot state was restored.");
+  }
+
+  async function importSessionFile(file) {
+    if (!file) {
+      return;
+    }
+
+    try {
+      clearError();
+      const text = await file.text();
+      const result = sessionManager.parseAndValidateSession(text);
+      if (!result.ok) {
+        showError(result.warnings.join(" "));
+        setStatus("Session import failed.");
+        return;
+      }
+      await restoreSession(result.session);
+    } catch (error) {
+      showError(normalizeUiError(error));
+      setStatus("Session import failed.");
+    } finally {
+      dom.sessionImportFile.value = "";
+    }
+  }
+
   function bindCmcTableEditing() {
     dom.cmcTableBody.addEventListener("input", (event) => {
       const input = event.target.closest("[data-cmc-concentration-index]");
@@ -282,6 +355,13 @@
     dom.cmcAnalyze.addEventListener("click", withUiLock(runCmc));
     dom.runtimeRetry.addEventListener("click", () => {
       retryRuntime();
+    });
+    dom.sessionExport.addEventListener("click", exportSession);
+    dom.sessionImportButton.addEventListener("click", () => {
+      dom.sessionImportFile.click();
+    });
+    dom.sessionImportFile.addEventListener("change", () => {
+      importSessionFile(dom.sessionImportFile.files[0]);
     });
 
     dom.cmcExport.addEventListener("click", async () => {

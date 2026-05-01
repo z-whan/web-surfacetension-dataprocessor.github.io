@@ -262,6 +262,26 @@
     return params;
   }
 
+  function applyParameters(container, definition, values) {
+    const source = values && typeof values === "object" ? values : {};
+    definition.params.forEach((param) => {
+      const input = container.querySelector(`[data-param-key="${param.key}"]`);
+      if (!input || !Object.prototype.hasOwnProperty.call(source, param.key)) {
+        return;
+      }
+
+      if (param.type === "checkbox") {
+        input.checked = Boolean(source[param.key]);
+      } else {
+        input.value = source[param.key] == null ? "" : String(source[param.key]);
+      }
+    });
+  }
+
+  function isPlainObject(value) {
+    return Object.prototype.toString.call(value) === "[object Object]";
+  }
+
   function formatValue(value) {
     if (value === null || typeof value === "undefined" || value === "") {
       return "—";
@@ -1200,6 +1220,110 @@
       } else {
         this.dom.helpDialog.removeAttribute("open");
       }
+    }
+
+    getSessionState() {
+      const trendDefinition = TREND_METHODS[this.dom.trendMethod.value];
+      const noiseDefinition = NOISE_METHODS[this.dom.noiseMethod.value];
+      return {
+        file: this.state.file
+          ? {
+              name: this.state.file.name,
+              size: this.state.file.size,
+              type: this.state.file.type,
+              lastModified: this.state.file.lastModified,
+            }
+          : null,
+        selection: this.currentSelectionArgs(),
+        trend: {
+          methodKey: this.dom.trendMethod.value,
+          parameters: trendDefinition ? collectParameters(this.dom.trendParams, trendDefinition) : {},
+          showRaw: Boolean(this.dom.showRawToggle.checked),
+          applied: Boolean(this.state.trendRequest),
+        },
+        noise: {
+          methodKey: this.dom.noiseMethod.value,
+          parameters: noiseDefinition ? collectParameters(this.dom.noiseParams, noiseDefinition) : {},
+        },
+        yAxis: {
+          spanPercent: this.currentYSpanPercent(),
+          manualRange: this.state.manualYRange ? this.state.manualYRange.slice() : null,
+          yMinText: this.dom.plotYMin ? this.dom.plotYMin.value : "",
+          yMaxText: this.dom.plotYMax ? this.dom.plotYMax.value : "",
+        },
+      };
+    }
+
+    restoreSessionState(sessionState) {
+      const warnings = [];
+      const input = isPlainObject(sessionState) ? sessionState : {};
+      const selection = isPlainObject(input.selection) ? input.selection : {};
+      const trend = isPlainObject(input.trend) ? input.trend : {};
+      const noise = isPlainObject(input.noise) ? input.noise : {};
+      const yAxis = isPlainObject(input.yAxis) ? input.yAxis : {};
+
+      this.state.file = null;
+      this.state.rawPayload = null;
+      this.state.trendPayload = null;
+      this.state.trendRequest = null;
+      this.state.noisePayload = null;
+      this.state.qualityPayload = null;
+      this.state.showRaw = typeof trend.showRaw === "boolean" ? trend.showRaw : true;
+      this.state.manualYRange = Array.isArray(yAxis.manualRange)
+        ? yAxis.manualRange.map((value) => Number(value)).filter((value) => Number.isFinite(value)).slice(0, 2)
+        : null;
+      if (this.state.manualYRange && this.state.manualYRange.length !== 2) {
+        this.state.manualYRange = null;
+      }
+
+      this.dom.plotInput.value = "";
+      this.dom.plotStart.value = typeof selection.startText === "string" ? selection.startText : "";
+      this.dom.plotEnd.value = typeof selection.endText === "string" ? selection.endText : "";
+      this.dom.plotExpRange.value = typeof selection.expRangeText === "string" ? selection.expRangeText : "";
+      this.dom.plotAvgOnly.checked = Boolean(selection.avgOnly);
+      this.dom.plotAvgShowOriginal.checked = Boolean(selection.showOriginalWithAvg);
+      this.syncAvgOverlayOption();
+
+      if (typeof trend.methodKey === "string" && TREND_METHODS[trend.methodKey]) {
+        this.dom.trendMethod.value = trend.methodKey;
+      } else {
+        warnings.push("Unsupported Time Series trend method was ignored.");
+      }
+      renderParameterFields(this.dom.trendParams, TREND_METHODS[this.dom.trendMethod.value]);
+      applyParameters(this.dom.trendParams, TREND_METHODS[this.dom.trendMethod.value], trend.parameters);
+      this.dom.showRawToggle.checked = this.state.showRaw;
+
+      if (typeof noise.methodKey === "string" && NOISE_METHODS[noise.methodKey]) {
+        this.dom.noiseMethod.value = noise.methodKey;
+      } else {
+        warnings.push("Unsupported Time Series noise method was ignored.");
+      }
+      renderParameterFields(this.dom.noiseParams, NOISE_METHODS[this.dom.noiseMethod.value]);
+      applyParameters(this.dom.noiseParams, NOISE_METHODS[this.dom.noiseMethod.value], noise.parameters);
+
+      if (this.dom.plotYSpan && Number.isFinite(Number(yAxis.spanPercent))) {
+        this.dom.plotYSpan.value = String(yAxis.spanPercent);
+      }
+      this.updateYSpanLabel();
+      this.resetYRangeControls();
+      if (this.state.manualYRange) {
+        this.syncYRangeInputs(this.state.manualYRange);
+      }
+
+      this.dom.plotMeta.textContent = input.file && input.file.name
+        ? `Session restored settings for ${input.file.name}. Select the data file again to rerun analysis.`
+        : "Session restored settings. Select a data file to rerun analysis.";
+      this.dom.plotExport.disabled = true;
+      this.dom.plotExportSvg.disabled = true;
+      this.dom.plotSendPublication.disabled = true;
+      this.renderPlotSummary(null);
+      this.renderTrendStatus("Session settings restored. Apply analysis after selecting the data file.");
+      this.renderQualityDiagnostics(null);
+      this.renderNoiseOutput(null);
+      this.charts.clearPlot(this.dom.plotCanvas);
+      this.charts.clearPlot(this.dom.noiseCanvas);
+      warnings.push("Time Series settings were restored, but local file selection must be repeated.");
+      return warnings;
     }
   }
 

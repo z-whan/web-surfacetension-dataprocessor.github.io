@@ -19,6 +19,7 @@
     <script src="./assets/js/python-sources.js?v=20260424a" defer></script>
     <script src="./assets/js/dom-utils.js?v=20260501a" defer></script>
     <script src="./assets/js/downloads.js?v=20260501a" defer></script>
+    <script src="./assets/js/session-manager.js?v=20260501a" defer></script>
     <script src="./assets/js/charts.js?v=20260430b" defer></script>
     <script src="./assets/js/publication-plot.js?v=20260430a" defer></script>
     <script src="./assets/js/pyodide-client.js?v=20260424a" defer></script>
@@ -41,6 +42,9 @@
           <p class="status-text" data-status-text>Preparing browser-local Python runtime...</p>
           <div class="button-row">
             <button id="runtime-retry" class="ghost-button" type="button">Retry Runtime</button>
+            <button id="session-export" class="ghost-button" type="button">Export Session</button>
+            <button id="session-import-button" class="ghost-button" type="button">Import Session</button>
+            <input id="session-import-file" type="file" accept="application/json,.json" hidden />
           </div>
         </div>
       </header>

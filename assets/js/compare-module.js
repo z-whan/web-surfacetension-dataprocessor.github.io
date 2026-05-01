@@ -65,6 +65,54 @@
     return label || defaultDisplayLabel(curve);
   }
 
+  function cloneJson(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function numericArray(values) {
+    if (!Array.isArray(values)) {
+      return [];
+    }
+    return values.map((value) => {
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? numberValue : null;
+    });
+  }
+
+  function sanitizeImportedCurve(curve, fallbackIndex) {
+    if (!curve || typeof curve !== "object") {
+      return null;
+    }
+    const x = numericArray(curve.x);
+    const y = numericArray(curve.y);
+    if (!x.length || x.length !== y.length) {
+      return null;
+    }
+    const displayIndex = Number.isFinite(Number(curve.displayIndex))
+      ? Number(curve.displayIndex)
+      : fallbackIndex;
+    return {
+      sourceFileName: String(curve.sourceFileName || "Imported session"),
+      experimentRange: String(curve.experimentRange || ""),
+      expTag: String(curve.expTag || ""),
+      rowRange: Array.isArray(curve.rowRange) ? curve.rowRange.slice(0, 2) : [],
+      selection: String(curve.selection || `Series ${fallbackIndex}`),
+      dataType: String(curve.dataType || "raw"),
+      trendMethod: String(curve.trendMethod || ""),
+      trendParameters: curve.trendParameters && typeof curve.trendParameters === "object"
+        ? cloneJson(curve.trendParameters)
+        : {},
+      xLabel: String(curve.xLabel || "Time"),
+      yLabel: String(curve.yLabel || "I.T. (mN/m)"),
+      x,
+      y,
+      points: y.length,
+      displayIndex,
+      displayLabel: String(curve.displayLabel || `#${displayIndex}`),
+      createdAt: String(curve.createdAt || new Date().toISOString()),
+    };
+  }
+
   class CompareModuleController {
     constructor(options) {
       this.charts = options.charts;
@@ -534,6 +582,96 @@
 
       this.renderSummary();
       this.updateSelectAllState();
+    }
+
+    getSessionState() {
+      const curves = this.state.curves.map((curve) => {
+        const copy = cloneJson(curve);
+        delete copy.id;
+        delete copy.duplicateKey;
+        return copy;
+      });
+      const idToDisplay = new Map(this.state.curves.map((curve) => [curve.id, curve.displayIndex]));
+      return {
+        curves,
+        selectedDisplayIndexes: Array.from(this.state.selectedIds)
+          .map((id) => idToDisplay.get(id))
+          .filter((value) => typeof value === "number"),
+        lastPlottedDisplayIndexes: this.state.lastPlottedIds
+          .map((id) => idToDisplay.get(id))
+          .filter((value) => typeof value === "number"),
+        yAxis: {
+          spanPercent: this.currentYSpanPercent(),
+          manualRange: this.state.manualYRange ? this.state.manualYRange.slice() : null,
+          yMinText: this.dom.yMin ? this.dom.yMin.value : "",
+          yMaxText: this.dom.yMax ? this.dom.yMax.value : "",
+        },
+      };
+    }
+
+    async restoreSessionState(sessionState) {
+      const warnings = [];
+      const input = sessionState && typeof sessionState === "object" ? sessionState : {};
+      const importedCurves = Array.isArray(input.curves) ? input.curves : [];
+      const curves = importedCurves
+        .map((curve, index) => sanitizeImportedCurve(curve, index + 1))
+        .filter(Boolean);
+      if (curves.length !== importedCurves.length) {
+        warnings.push("Some Compare curves were skipped because their x/y data was missing or invalid.");
+      }
+
+      this.cancelPendingLabelUpdate();
+      this.state.curves = [];
+      this.state.selectedIds.clear();
+      this.state.lastPlottedIds = [];
+      this.state.nextId = 1;
+      this.state.nextDisplayIndex = 1;
+
+      curves.forEach((curve) => {
+        const id = this.state.nextId;
+        this.state.nextId += 1;
+        this.state.nextDisplayIndex = Math.max(this.state.nextDisplayIndex, curve.displayIndex + 1);
+        this.state.curves.push({
+          ...curve,
+          id,
+          duplicateKey: buildDuplicateKey(curve),
+        });
+      });
+
+      const selectedIndexes = new Set(
+        Array.isArray(input.selectedDisplayIndexes) ? input.selectedDisplayIndexes.map(Number) : []
+      );
+      this.state.curves.forEach((curve) => {
+        if (!selectedIndexes.size || selectedIndexes.has(curve.displayIndex)) {
+          this.state.selectedIds.add(curve.id);
+        }
+      });
+
+      const yAxis = input.yAxis && typeof input.yAxis === "object" ? input.yAxis : {};
+      if (this.dom.ySpan && Number.isFinite(Number(yAxis.spanPercent))) {
+        this.dom.ySpan.value = String(yAxis.spanPercent);
+      }
+      this.updateYSpanLabel();
+      this.state.manualYRange = Array.isArray(yAxis.manualRange)
+        ? yAxis.manualRange.map((value) => Number(value)).filter((value) => Number.isFinite(value)).slice(0, 2)
+        : null;
+      if (this.state.manualYRange && this.state.manualYRange.length !== 2) {
+        this.state.manualYRange = null;
+      }
+
+      this.setYRangeInputsEnabled(this.state.curves.length > 0);
+      this.syncYRangeInputs(this.state.manualYRange || this.currentAutoYRange());
+      this.render();
+      this.dom.exportButton.disabled = true;
+      this.dom.exportSvgButton.disabled = true;
+      this.dom.sendPublicationButton.disabled = true;
+
+      if (this.selectedCurves().filter(hasUsableSeries).length) {
+        await this.plotSelected({ quiet: true });
+      } else {
+        this.charts.clearPlot(this.dom.canvas);
+      }
+      return warnings;
     }
   }
 

@@ -459,6 +459,7 @@
         plotExport: document.querySelector("#plot-export"),
         plotExportSvg: document.querySelector("#plot-export-svg"),
         plotSendPublication: document.querySelector("#plot-send-publication"),
+        plotReset: document.querySelector("#plot-reset"),
         plotSummary: document.querySelector("[data-plot-summary]"),
         plotCanvas: document.querySelector("#plot-canvas"),
         plotYSpan: document.querySelector("#plot-y-span"),
@@ -529,6 +530,7 @@
         this.withRuntime(() => this.runPlot())();
       });
       this.dom.plotMarkCompare.addEventListener("click", () => this.handleMarkForCompare());
+      this.dom.plotReset.addEventListener("click", () => this.resetInputs());
       this.dom.trendApply.addEventListener("click", () => {
         this.withRuntime(() => this.applyTrend())();
       });
@@ -617,6 +619,61 @@
       this.resetYRangeControls();
       this.charts.clearPlot(this.dom.plotCanvas);
       this.charts.clearPlot(this.dom.noiseCanvas);
+    }
+
+    resetInputs() {
+      const currentFile = this.state.file;
+      this.clearError();
+
+      this.state.rawPayload = null;
+      this.state.trendPayload = null;
+      this.state.trendRequest = null;
+      this.state.noisePayload = null;
+      this.state.qualityPayload = null;
+      this.state.showRaw = true;
+      this.state.manualYRange = null;
+
+      this.dom.plotStart.value = "";
+      this.dom.plotEnd.value = "";
+      this.dom.plotExpRange.value = "";
+      this.dom.plotAvgOnly.checked = false;
+      this.dom.plotAvgShowOriginal.checked = false;
+      this.syncAvgOverlayOption();
+
+      const defaultTrendMethod = Object.keys(TREND_METHODS)[0];
+      if (defaultTrendMethod) {
+        this.dom.trendMethod.value = defaultTrendMethod;
+        renderParameterFields(this.dom.trendParams, TREND_METHODS[defaultTrendMethod]);
+      }
+      this.dom.showRawToggle.checked = true;
+
+      const defaultNoiseMethod = Object.keys(NOISE_METHODS)[0];
+      if (defaultNoiseMethod) {
+        this.dom.noiseMethod.value = defaultNoiseMethod;
+        renderParameterFields(this.dom.noiseParams, NOISE_METHODS[defaultNoiseMethod]);
+      }
+
+      if (this.dom.plotYSpan) {
+        this.dom.plotYSpan.value = "100";
+      }
+      this.updateYSpanLabel();
+      this.resetYRangeControls();
+
+      this.dom.plotMeta.textContent = this.describeFile(currentFile);
+      this.dom.plotExport.disabled = true;
+      this.dom.plotExportSvg.disabled = true;
+      this.dom.plotSendPublication.disabled = true;
+      this.renderPlotSummary(null);
+      this.renderTrendStatus("No trend has been applied yet.");
+      this.renderQualityDiagnostics(null);
+      this.renderNoiseOutput(null);
+      this.charts.clearPlot(this.dom.plotCanvas);
+      this.charts.clearPlot(this.dom.noiseCanvas);
+      this.setStatus(
+        currentFile
+          ? `Time Series inputs reset. ${currentFile.name} remains selected.`
+          : "Time Series inputs reset."
+      );
     }
 
     handleAvgOnlyChange() {

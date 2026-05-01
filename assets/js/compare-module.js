@@ -35,6 +35,7 @@
       rowRange: curve.rowRange,
       selection: curve.selection,
       dataType: curve.dataType,
+      yAxis: curve.yAxis,
       trendMethod: curve.trendMethod,
       trendParameters: curve.trendParameters,
     });
@@ -98,6 +99,7 @@
       rowRange: Array.isArray(curve.rowRange) ? curve.rowRange.slice(0, 2) : [],
       selection: String(curve.selection || `Series ${fallbackIndex}`),
       dataType: String(curve.dataType || "raw"),
+      yAxis: String(curve.yAxis || "y"),
       trendMethod: String(curve.trendMethod || ""),
       trendParameters: curve.trendParameters && typeof curve.trendParameters === "object"
         ? cloneJson(curve.trendParameters)
@@ -372,6 +374,7 @@
       await this.charts.renderComparePlot(this.dom.canvas, valid, {
         xLabel: valid[0].xLabel || "Time",
         yLabel: valid[0].yLabel || "I.T. (mN/m)",
+        secondaryYLabel: "Droplet volume, V (μL)",
         ySpanPercent: this.currentYSpanPercent(),
         explicitYRange: this.state.manualYRange,
       });
@@ -473,7 +476,8 @@
       if (!selected.length || !this.charts.resolveSeriesYRange) {
         return null;
       }
-      return this.charts.resolveSeriesYRange(selected, {
+      const primary = selected.filter((curve) => curve.dataType !== "volume" && curve.yAxis !== "y2");
+      return this.charts.resolveSeriesYRange(primary.length ? primary : selected, {
         ySpanPercent: this.currentYSpanPercent(),
       });
     }

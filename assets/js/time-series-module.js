@@ -813,6 +813,7 @@
 
     buildCompareCurve(series, dataType, index) {
       const isTrend = dataType === "trend";
+      const isVolume = dataType === "volume";
       const trendMethod = isTrend && this.state.trendPayload ? this.state.trendPayload.method.label : "";
       const trendParameters =
         isTrend && this.state.trendPayload ? { ...this.state.trendPayload.method.parameters } : {};
@@ -827,7 +828,8 @@
         trendMethod,
         trendParameters,
         xLabel: this.state.rawPayload.xLabel,
-        yLabel: "I.T. (mN/m)",
+        yLabel: isVolume ? "Droplet volume, V (μL)" : "I.T. (mN/m)",
+        yAxis: isVolume ? "y2" : "y",
         x: cloneSeriesValues(series.x),
         y: cloneSeriesValues(series.y),
         points: Array.isArray(series.y) ? series.y.length : 0,
@@ -849,6 +851,17 @@
       if (this.state.trendPayload) {
         this.state.trendPayload.series.forEach((series, index) => {
           curves.push(this.buildCompareCurve(series, "trend", index));
+        });
+      }
+
+      const volumeOverlay = this.state.rawPayload.volumeOverlay;
+      if (
+        this.state.showVolumeOverlay &&
+        volumeOverlay &&
+        Array.isArray(volumeOverlay.series)
+      ) {
+        volumeOverlay.series.forEach((series, index) => {
+          curves.push(this.buildCompareCurve(series, "volume", index));
         });
       }
 

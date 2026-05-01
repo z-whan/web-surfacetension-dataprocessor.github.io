@@ -264,21 +264,30 @@
 
   async function renderComparePlot(target, curves, options) {
     const opts = options || {};
+    const hasPrimaryCurves = curves.some((curve) => curve.dataType !== "volume" && curve.yAxis !== "y2");
+    const hasVolumeCurves = curves.some((curve) => curve.dataType === "volume" || curve.yAxis === "y2");
+    const primaryRangeCurves = hasPrimaryCurves
+      ? curves.filter((curve) => curve.dataType !== "volume" && curve.yAxis !== "y2")
+      : curves;
     const traces = curves.map((curve, index) => {
       const label = String(curve.displayLabel || "").trim() || "#" + curve.displayIndex;
       const hoverLabel = domUtils.escapeHtml(label);
       const hoverSelection = domUtils.escapeHtml(curve.selection || "");
+      const isVolume = curve.dataType === "volume" || curve.yAxis === "y2";
+      const yaxis = isVolume && hasPrimaryCurves ? "y2" : undefined;
       return {
         type: "scatter",
         mode: "lines",
         name: label,
         x: curve.x,
         y: curve.y,
+        yaxis,
         line: {
-          width: 2,
+          width: isVolume ? 1.4 : 2,
           color: PALETTE[index % PALETTE.length],
-          dash: curve.dataType === "trend" ? "dash" : "solid",
+          dash: isVolume ? "dot" : curve.dataType === "trend" ? "dash" : "solid",
         },
+        opacity: isVolume ? 0.68 : undefined,
         hovertemplate: hoverLabel + "<br>" + hoverSelection + "<br>%{x}, %{y:.4f}<extra></extra>",
       };
     });
@@ -288,11 +297,13 @@
       traces,
       baseLayout({
         xLabel: opts.xLabel || "Time",
-        yLabel: opts.yLabel || "I.T. (mN/m)",
+        yLabel: hasPrimaryCurves ? opts.yLabel || "I.T. (mN/m)" : opts.secondaryYLabel || "Droplet volume, V (μL)",
         title: "Compare",
         xScale: "linear",
         yScale: "linear",
-        yRange: resolveSeriesYRange(curves, opts),
+        yRange: resolveSeriesYRange(primaryRangeCurves, opts),
+        secondaryY: hasPrimaryCurves && hasVolumeCurves,
+        secondaryYLabel: opts.secondaryYLabel || "Droplet volume, V (μL)",
       }),
       { responsive: true, displaylogo: false }
     );

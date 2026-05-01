@@ -83,6 +83,41 @@ assert(charts, "SurfaceLabCharts should attach to globalThis");
   assert.strictEqual(captured.data[0].yaxis, "y2");
   assert.strictEqual(captured.data[0].line.dash, "dot");
 
+  await charts.renderComparePlot(
+    {},
+    [
+      {
+        displayIndex: 1,
+        displayLabel: "#1",
+        selection: "Exp 1 σ",
+        dataType: "raw",
+        x: [1000, 2000],
+        y: [70, 71],
+      },
+      {
+        displayIndex: 2,
+        displayLabel: "#2",
+        selection: "Exp 1 V",
+        dataType: "volume",
+        yAxis: "y2",
+        x: [1000, 2000],
+        y: [11.1, 11.0],
+      },
+    ],
+    {
+      xLabel: "Time (ms)",
+      yLabel: "I.T. (mN/m)",
+      secondaryYLabel: "Droplet volume, V (μL)",
+    }
+  );
+
+  assert.strictEqual(captured.data.length, 2);
+  assert.strictEqual(captured.data[0].line.dash, "solid");
+  assert.strictEqual(captured.data[1].yaxis, "y2");
+  assert.strictEqual(captured.data[1].line.dash, "dot");
+  assert.strictEqual(captured.layout.yaxis.title.text, "I.T. (mN/m)");
+  assert.strictEqual(captured.layout.yaxis2.title.text, "Droplet volume, V (μL)");
+
   console.log("charts tests passed");
 })().catch((error) => {
   console.error(error);

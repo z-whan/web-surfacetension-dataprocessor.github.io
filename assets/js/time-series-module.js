@@ -512,6 +512,7 @@
 
       this.dom.plotInput.addEventListener("change", () => this.handleFileSelection());
       this.dom.plotAvgOnly.addEventListener("change", () => this.handleAvgOnlyChange());
+      this.dom.plotAvgShowOriginal.addEventListener("change", () => this.handleOriginalSeriesChange());
       this.dom.plotVolumeOverlay.addEventListener("change", () => this.handleVolumeOverlayChange());
       this.dom.trendMethod.addEventListener("change", () => {
         renderParameterFields(this.dom.trendParams, TREND_METHODS[this.dom.trendMethod.value]);
@@ -611,7 +612,7 @@
       this.state.showRaw = true;
       this.state.showVolumeOverlay = false;
       this.state.manualYRange = null;
-      this.dom.showRawToggle.checked = true;
+      this.setOriginalSeriesVisible(true);
       this.dom.plotVolumeOverlay.checked = false;
       this.dom.plotMeta.textContent = this.describeFile(this.state.file);
       this.dom.plotExport.disabled = true;
@@ -643,16 +644,15 @@
       this.dom.plotEnd.value = "";
       this.dom.plotExpRange.value = "";
       this.dom.plotAvgOnly.checked = false;
-      this.dom.plotAvgShowOriginal.checked = false;
+      this.setOriginalSeriesVisible(true);
       this.dom.plotVolumeOverlay.checked = false;
-      this.syncAvgOverlayOption();
 
       const defaultTrendMethod = Object.keys(TREND_METHODS)[0];
       if (defaultTrendMethod) {
         this.dom.trendMethod.value = defaultTrendMethod;
         renderParameterFields(this.dom.trendParams, TREND_METHODS[defaultTrendMethod]);
       }
-      this.dom.showRawToggle.checked = true;
+      this.setOriginalSeriesVisible(true);
 
       const defaultNoiseMethod = Object.keys(NOISE_METHODS)[0];
       if (defaultNoiseMethod) {
@@ -683,15 +683,19 @@
       );
     }
 
-    handleAvgOnlyChange() {
-      this.syncAvgOverlayOption();
+    async handleAvgOnlyChange() {
+      this.setOriginalSeriesVisible(!this.dom.plotAvgOnly.checked);
+      await this.refreshLoadedPlotFromControls();
     }
 
-    handleShowRawToggle() {
-      this.state.showRaw = Boolean(this.dom.showRawToggle.checked);
-      if (this.state.rawPayload) {
-        this.renderCurrentPlot();
-      }
+    async handleShowRawToggle() {
+      this.setOriginalSeriesVisible(Boolean(this.dom.showRawToggle.checked));
+      await this.refreshLoadedPlotFromControls();
+    }
+
+    async handleOriginalSeriesChange() {
+      this.setOriginalSeriesVisible(Boolean(this.dom.plotAvgShowOriginal.checked));
+      await this.refreshLoadedPlotFromControls();
     }
 
     handleVolumeOverlayChange() {
@@ -836,7 +840,7 @@
       }
 
       const curves = [];
-      if (!this.state.trendPayload || this.state.showRaw) {
+      if (this.state.showRaw) {
         this.state.rawPayload.series.forEach((series, index) => {
           curves.push(this.buildCompareCurve(series, "raw", index));
         });
@@ -859,15 +863,40 @@
       });
     }
 
+    setOriginalSeriesVisible(visible) {
+      const enabled = Boolean(visible);
+      this.state.showRaw = enabled;
+      if (this.dom.plotAvgShowOriginal) {
+        this.dom.plotAvgShowOriginal.checked = enabled;
+        this.dom.plotAvgShowOriginal.disabled = false;
+      }
+      if (this.dom.showRawToggle) {
+        this.dom.showRawToggle.checked = enabled;
+      }
+    }
+
     syncAvgOverlayOption() {
       if (!this.dom.plotAvgShowOriginal) {
         return;
       }
+      this.dom.plotAvgShowOriginal.disabled = false;
+      this.dom.plotAvgShowOriginal.checked = this.state.showRaw;
+    }
 
-      const enabled = Boolean(this.dom.plotAvgOnly.checked);
-      this.dom.plotAvgShowOriginal.disabled = !enabled;
-      if (!enabled) {
-        this.dom.plotAvgShowOriginal.checked = false;
+    async refreshLoadedPlotFromControls() {
+      if (!this.state.rawPayload) {
+        return;
+      }
+      try {
+        this.clearError();
+        if (this.dom.plotAvgOnly.checked) {
+          this.state.rawPayload = await this.loadRawPayload();
+          this.renderPlotSummary(this.state.rawPayload);
+        }
+        await this.renderCurrentPlot();
+        this.renderVolumeOverlayStatus();
+      } catch (error) {
+        this.showError(this.normalizeUiError(error));
       }
     }
 
@@ -969,8 +998,9 @@
       this.state.trendPayload = null;
       this.state.trendRequest = null;
       this.state.noisePayload = null;
-      this.state.showRaw = true;
-      this.dom.showRawToggle.checked = true;
+      if (!this.dom.plotAvgOnly.checked) {
+        this.setOriginalSeriesVisible(true);
+      }
       this.renderTrendStatus("No trend has been applied yet.");
       this.renderNoiseOutput(null);
 

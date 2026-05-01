@@ -194,7 +194,7 @@
         : null;
     const traces = [];
 
-    if (!trendPayload || showRaw) {
+    if (showRaw) {
       rawPayload.series.forEach((series, index) => {
         const trace = buildRawTrace(series, index);
         if (trendPayload) {

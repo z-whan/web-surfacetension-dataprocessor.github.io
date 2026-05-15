@@ -13,14 +13,30 @@ QC_NO_PLATEAU = "NO_PLATEAU"
 QC_HIGH_FINAL_DRIFT = "HIGH_FINAL_DRIFT"
 QC_HIGH_NOISE = "HIGH_NOISE"
 QC_HIGH_VOLUME_LOSS = "HIGH_VOLUME_LOSS"
+QC_HIGH_EVAPORATION = "HIGH_EVAPORATION"
 QC_OUTLIER_WITHIN_CONCENTRATION = "OUTLIER_WITHIN_CONCENTRATION"
+QC_NO_VOLUME_DATA = "NO_VOLUME_DATA"
+QC_LOW_POINT_COUNT = "LOW_POINT_COUNT"
+
+QC_FAIL_FLAGS = {
+    QC_NO_VALID_DATA,
+    QC_NO_PLATEAU,
+    QC_HIGH_FINAL_DRIFT,
+    QC_HIGH_NOISE,
+    QC_HIGH_VOLUME_LOSS,
+    QC_HIGH_EVAPORATION,
+    QC_OUTLIER_WITHIN_CONCENTRATION,
+}
 
 DEFAULT_CMC_QC_OPTIONS: dict[str, Any] = {
     "plateauMode": "manual",
     "minPlateauWindowMs": 5000.0,
+    "plateauSearchStrideMs": 5000.0,
+    "autoSearchTailFraction": 0.7,
     "maxAbsSlopeMnMPerMin": 0.5,
     "maxPlateauSdMnM": 0.5,
-    "maxVolumeLossPct": 10.0,
+    "maxVolumeLossPct": 5.0,
+    "maxEvaporationRatePctPerMin": 0.5,
     "aggregationMethod": "mean",
     "fitModel": "segmented_continuous",
     "sampleType": "unknown",
@@ -52,8 +68,25 @@ class CmcDropletQc:
     flags: list[str]
     used_for_aggregate: bool
     exclude_reason: str | None
+    full_volume_start_ul: float | None = None
+    full_volume_end_ul: float | None = None
+    full_volume_loss_pct: float | None = None
+    full_volume_duration_min: float | None = None
+    full_evaporation_rate_pct_per_min: float | None = None
+    plateau_volume_start_ul: float | None = None
+    plateau_volume_end_ul: float | None = None
+    plateau_volume_loss_pct: float | None = None
 
     def to_payload(self) -> dict[str, Any]:
+        plateau_start = self.plateau_volume_start_ul
+        plateau_end = self.plateau_volume_end_ul
+        plateau_loss = self.plateau_volume_loss_pct
+        if plateau_start is None:
+            plateau_start = self.volume_start_ul
+        if plateau_end is None:
+            plateau_end = self.volume_end_ul
+        if plateau_loss is None:
+            plateau_loss = self.volume_loss_pct
         return {
             "gammaEq": self.gamma_eq,
             "gammaSd": self.gamma_sd,
@@ -62,9 +95,17 @@ class CmcDropletQc:
             "plateauEndMs": self.plateau_end_ms,
             "slopeMnMPerMin": self.slope_mn_m_per_min,
             "pointCount": self.point_count,
-            "volumeStartUL": self.volume_start_ul,
-            "volumeEndUL": self.volume_end_ul,
-            "volumeLossPct": self.volume_loss_pct,
+            "volumeStartUL": plateau_start,
+            "volumeEndUL": plateau_end,
+            "volumeLossPct": plateau_loss,
+            "fullVolumeStartUL": self.full_volume_start_ul,
+            "fullVolumeEndUL": self.full_volume_end_ul,
+            "fullVolumeLossPct": self.full_volume_loss_pct,
+            "fullVolumeDurationMin": self.full_volume_duration_min,
+            "fullEvaporationRatePctPerMin": self.full_evaporation_rate_pct_per_min,
+            "plateauVolumeStartUL": plateau_start,
+            "plateauVolumeEndUL": plateau_end,
+            "plateauVolumeLossPct": plateau_loss,
             "flags": list(self.flags),
             "usedForAggregate": self.used_for_aggregate,
             "excludeReason": self.exclude_reason,
@@ -123,9 +164,12 @@ def normalize_cmc_qc_options(options: dict[str, Any] | None = None) -> dict[str,
 
     for key in (
         "minPlateauWindowMs",
+        "plateauSearchStrideMs",
+        "autoSearchTailFraction",
         "maxAbsSlopeMnMPerMin",
         "maxPlateauSdMnM",
         "maxVolumeLossPct",
+        "maxEvaporationRatePctPerMin",
     ):
         try:
             normalized[key] = float(normalized[key])
@@ -133,9 +177,12 @@ def normalize_cmc_qc_options(options: dict[str, Any] | None = None) -> dict[str,
             normalized[key] = DEFAULT_CMC_QC_OPTIONS[key]
 
     normalized["minPlateauWindowMs"] = max(0.0, float(normalized["minPlateauWindowMs"]))
+    normalized["plateauSearchStrideMs"] = max(1.0, float(normalized["plateauSearchStrideMs"]))
+    normalized["autoSearchTailFraction"] = min(1.0, max(0.0, float(normalized["autoSearchTailFraction"])))
     normalized["maxAbsSlopeMnMPerMin"] = max(0.0, float(normalized["maxAbsSlopeMnMPerMin"]))
     normalized["maxPlateauSdMnM"] = max(0.0, float(normalized["maxPlateauSdMnM"]))
     normalized["maxVolumeLossPct"] = max(0.0, float(normalized["maxVolumeLossPct"]))
+    normalized["maxEvaporationRatePctPerMin"] = max(0.0, float(normalized["maxEvaporationRatePctPerMin"]))
 
     try:
         normalized["minPointsPerSegment"] = max(1, int(normalized["minPointsPerSegment"]))
@@ -310,6 +357,22 @@ def _series_to_numeric_array(series: pd.Series) -> np.ndarray:
     return pd.to_numeric(series, errors="coerce").to_numpy(dtype=float)
 
 
+def _surface_tension_trace_is_valid(values: np.ndarray, total_count: int | None = None) -> bool:
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return False
+
+    denominator = int(total_count if total_count is not None else values.size)
+    min_required = max(2, min(5, int(denominator * 0.2)))
+    if finite.size < min_required:
+        return False
+    if int(np.count_nonzero(np.abs(finite) > 1e-12)) == 0:
+        return False
+
+    plausible = finite[(finite >= 1.0) & (finite <= 200.0)]
+    return plausible.size >= min_required
+
+
 def _build_trace(
     *,
     droplet_index: int,
@@ -352,7 +415,8 @@ def _extract_famas_droplet_traces(
     traces: list[CmcDropletTrace] = []
     for exp_index, gamma_col in _famas_trace_columns(df.columns):
         gamma_series = df[gamma_col]
-        if pd.to_numeric(gamma_series, errors="coerce").notna().sum() == 0:
+        gamma_values = _series_to_numeric_array(gamma_series)
+        if not _surface_tension_trace_is_valid(gamma_values, len(gamma_series)):
             continue
 
         volume_col = f"V(uL).{exp_index}"
@@ -439,7 +503,16 @@ def _finite_values(values: np.ndarray) -> np.ndarray:
     return values[np.isfinite(values)]
 
 
-def _window_volume_values(trace: CmcDropletTrace, mask: np.ndarray) -> tuple[float | None, float | None, float | None]:
+def _volume_loss_pct(start: float | None, end: float | None) -> float | None:
+    if start is None or end is None or start <= 0:
+        return None
+    return float(max(0.0, (start - end) / start * 100.0))
+
+
+def _volume_values_for_mask(
+    trace: CmcDropletTrace,
+    mask: np.ndarray,
+) -> tuple[float | None, float | None, float | None]:
     if trace.volume is None:
         return None, None, None
 
@@ -449,10 +522,90 @@ def _window_volume_values(trace: CmcDropletTrace, mask: np.ndarray) -> tuple[flo
 
     start = float(volumes[0])
     end = float(volumes[-1])
-    loss_pct = None
-    if start > 0:
-        loss_pct = float(max(0.0, (start - end) / start * 100.0))
+    loss_pct = _volume_loss_pct(start, end)
     return start, end, loss_pct
+
+
+def _full_volume_metrics(trace: CmcDropletTrace) -> dict[str, float | None]:
+    metrics: dict[str, float | None] = {
+        "start": None,
+        "end": None,
+        "lossPct": None,
+        "durationMin": None,
+        "evaporationRatePctPerMin": None,
+    }
+    if trace.volume is None:
+        return metrics
+
+    mask = np.isfinite(trace.volume) & np.isfinite(trace.time)
+    if not mask.any():
+        return metrics
+
+    volumes = trace.volume[mask].astype(float)
+    times = trace.time[mask].astype(float)
+    start = float(volumes[0])
+    end = float(volumes[-1])
+    duration_min = float(max(0.0, (times[-1] - times[0]) / 60000.0))
+    loss_pct = _volume_loss_pct(start, end)
+    evaporation_rate = None
+    if loss_pct is not None and duration_min > 0:
+        evaporation_rate = float(loss_pct / duration_min)
+
+    metrics.update({
+        "start": start,
+        "end": end,
+        "lossPct": loss_pct,
+        "durationMin": duration_min,
+        "evaporationRatePctPerMin": evaporation_rate,
+    })
+    return metrics
+
+
+def _first_fail_flag(flags: Sequence[str]) -> str | None:
+    for flag in flags:
+        if flag in QC_FAIL_FLAGS:
+            return flag
+    return None
+
+
+def _finalize_qc_usage(qc: CmcDropletQc) -> CmcDropletQc:
+    reason = _first_fail_flag(qc.flags)
+    qc.used_for_aggregate = reason is None
+    qc.exclude_reason = reason
+    return qc
+
+
+def _empty_qc(flag: str, trace: CmcDropletTrace | None = None) -> CmcDropletQc:
+    full_metrics = _full_volume_metrics(trace) if trace is not None else {
+        "start": None,
+        "end": None,
+        "lossPct": None,
+        "durationMin": None,
+        "evaporationRatePctPerMin": None,
+    }
+    return CmcDropletQc(
+        gamma_eq=None,
+        gamma_sd=None,
+        gamma_se=None,
+        plateau_start_ms=None,
+        plateau_end_ms=None,
+        slope_mn_m_per_min=None,
+        point_count=0,
+        volume_start_ul=None,
+        volume_end_ul=None,
+        volume_loss_pct=None,
+        flags=[flag],
+        used_for_aggregate=False,
+        exclude_reason=flag,
+        full_volume_start_ul=full_metrics["start"],
+        full_volume_end_ul=full_metrics["end"],
+        full_volume_loss_pct=full_metrics["lossPct"],
+        full_volume_duration_min=full_metrics["durationMin"],
+        full_evaporation_rate_pct_per_min=full_metrics["evaporationRatePctPerMin"],
+        plateau_volume_start_ul=None,
+        plateau_volume_end_ul=None,
+        plateau_volume_loss_pct=None,
+    )
 
 
 def _fit_window_qc(
@@ -465,21 +618,7 @@ def _fit_window_qc(
     point_count = int(gamma.size)
 
     if point_count == 0:
-        return CmcDropletQc(
-            gamma_eq=None,
-            gamma_sd=None,
-            gamma_se=None,
-            plateau_start_ms=None,
-            plateau_end_ms=None,
-            slope_mn_m_per_min=None,
-            point_count=0,
-            volume_start_ul=None,
-            volume_end_ul=None,
-            volume_loss_pct=None,
-            flags=[QC_NO_VALID_DATA],
-            used_for_aggregate=False,
-            exclude_reason=QC_NO_VALID_DATA,
-        )
+        return _empty_qc(QC_NO_VALID_DATA, trace)
 
     gamma_eq = float(gamma.mean())
     gamma_sd = float(gamma.std(ddof=1)) if point_count > 1 else 0.0
@@ -490,16 +629,26 @@ def _fit_window_qc(
         time_min = time / 60000.0
         slope = float(np.polyfit(time_min, gamma, 1)[0])
 
-    volume_start, volume_end, volume_loss = _window_volume_values(trace, mask)
+    plateau_volume_start, plateau_volume_end, plateau_volume_loss = _volume_values_for_mask(trace, mask)
+    full_metrics = _full_volume_metrics(trace)
     flags: list[str] = []
+    if point_count < 3:
+        _append_flag(flags, QC_LOW_POINT_COUNT)
     if abs(slope) > float(options["maxAbsSlopeMnMPerMin"]):
         _append_flag(flags, QC_HIGH_FINAL_DRIFT)
     if gamma_sd > float(options["maxPlateauSdMnM"]):
         _append_flag(flags, QC_HIGH_NOISE)
-    if volume_loss is not None and volume_loss > float(options["maxVolumeLossPct"]):
+    if full_metrics["lossPct"] is None:
+        _append_flag(flags, QC_NO_VOLUME_DATA)
+    elif full_metrics["lossPct"] > float(options["maxVolumeLossPct"]):
         _append_flag(flags, QC_HIGH_VOLUME_LOSS)
+    if (
+        full_metrics["evaporationRatePctPerMin"] is not None
+        and full_metrics["evaporationRatePctPerMin"] > float(options["maxEvaporationRatePctPerMin"])
+    ):
+        _append_flag(flags, QC_HIGH_EVAPORATION)
 
-    return CmcDropletQc(
+    qc = CmcDropletQc(
         gamma_eq=gamma_eq,
         gamma_sd=gamma_sd,
         gamma_se=gamma_se,
@@ -507,13 +656,22 @@ def _fit_window_qc(
         plateau_end_ms=float(np.nanmax(time)),
         slope_mn_m_per_min=slope,
         point_count=point_count,
-        volume_start_ul=volume_start,
-        volume_end_ul=volume_end,
-        volume_loss_pct=volume_loss,
+        volume_start_ul=plateau_volume_start,
+        volume_end_ul=plateau_volume_end,
+        volume_loss_pct=plateau_volume_loss,
         flags=flags,
         used_for_aggregate=True,
         exclude_reason=None,
+        full_volume_start_ul=full_metrics["start"],
+        full_volume_end_ul=full_metrics["end"],
+        full_volume_loss_pct=full_metrics["lossPct"],
+        full_volume_duration_min=full_metrics["durationMin"],
+        full_evaporation_rate_pct_per_min=full_metrics["evaporationRatePctPerMin"],
+        plateau_volume_start_ul=plateau_volume_start,
+        plateau_volume_end_ul=plateau_volume_end,
+        plateau_volume_loss_pct=plateau_volume_loss,
     )
+    return _finalize_qc_usage(qc)
 
 
 def compute_droplet_plateau_qc(
@@ -529,21 +687,7 @@ def compute_droplet_plateau_qc(
 
     valid_mask = np.isfinite(trace.time) & np.isfinite(trace.gamma)
     if not valid_mask.any():
-        return CmcDropletQc(
-            gamma_eq=None,
-            gamma_sd=None,
-            gamma_se=None,
-            plateau_start_ms=None,
-            plateau_end_ms=None,
-            slope_mn_m_per_min=None,
-            point_count=0,
-            volume_start_ul=None,
-            volume_end_ul=None,
-            volume_loss_pct=None,
-            flags=[QC_NO_VALID_DATA],
-            used_for_aggregate=False,
-            exclude_reason=QC_NO_VALID_DATA,
-        )
+        return _empty_qc(QC_NO_VALID_DATA, trace)
 
     if mode == "manual":
         if t_min is None or t_max is None:
@@ -556,47 +700,120 @@ def compute_droplet_plateau_qc(
             qc.used_for_aggregate = False
         return qc
 
-    min_window_ms = float(qc_options["minPlateauWindowMs"])
-    valid_indexes = np.flatnonzero(valid_mask)
-    candidates: list[tuple[float, float, int, CmcDropletQc]] = []
+    min_window_ms = max(1.0, float(qc_options["minPlateauWindowMs"]))
+    stride_ms = max(1.0, float(qc_options["plateauSearchStrideMs"]))
+    tail_fraction = float(qc_options["autoSearchTailFraction"])
 
-    for start_pos, start_idx in enumerate(valid_indexes):
-        for end_idx in valid_indexes[start_pos + 1 :]:
-            duration = float(trace.time[end_idx] - trace.time[start_idx])
-            if duration < min_window_ms:
-                continue
-            mask = np.zeros_like(valid_mask, dtype=bool)
-            mask[start_idx : end_idx + 1] = valid_mask[start_idx : end_idx + 1]
-            qc = _fit_window_qc(trace, mask, qc_options)
-            if qc.point_count < 2:
-                continue
+    time_values = trace.time[valid_mask].astype(float)
+    gamma_values = trace.gamma[valid_mask].astype(float)
+    order = np.argsort(time_values)
+    time_values = time_values[order]
+    gamma_values = gamma_values[order]
+    if time_values.size < 2:
+        return _empty_qc(QC_NO_PLATEAU, trace)
 
-            slope_score = abs(qc.slope_mn_m_per_min or 0.0) / max(float(qc_options["maxAbsSlopeMnMPerMin"]), 1e-9)
-            noise_score = (qc.gamma_sd or 0.0) / max(float(qc_options["maxPlateauSdMnM"]), 1e-9)
-            end_score = -float(qc.plateau_end_ms or 0.0) / 1_000_000.0
-            width_score = -duration / 10_000_000.0
-            score = slope_score * 2.0 + noise_score + end_score + width_score
-            candidates.append((score, -float(qc.plateau_end_ms or 0.0), -qc.point_count, qc))
+    t_start = float(time_values[0])
+    t_end = float(time_values[-1])
+    total_duration = t_end - t_start
+    if total_duration < min_window_ms:
+        return _empty_qc(QC_NO_PLATEAU, trace)
+
+    x_min = time_values / 60000.0
+    prefixes = {
+        "x": np.concatenate(([0.0], np.cumsum(x_min))),
+        "y": np.concatenate(([0.0], np.cumsum(gamma_values))),
+        "x2": np.concatenate(([0.0], np.cumsum(np.square(x_min)))),
+        "y2": np.concatenate(([0.0], np.cumsum(np.square(gamma_values)))),
+        "xy": np.concatenate(([0.0], np.cumsum(x_min * gamma_values))),
+    }
+
+    def stats(left: int, right: int) -> dict[str, float | int] | None:
+        n = right - left
+        if n < 2:
+            return None
+        sx = float(prefixes["x"][right] - prefixes["x"][left])
+        sy = float(prefixes["y"][right] - prefixes["y"][left])
+        sx2 = float(prefixes["x2"][right] - prefixes["x2"][left])
+        sy2 = float(prefixes["y2"][right] - prefixes["y2"][left])
+        sxy = float(prefixes["xy"][right] - prefixes["xy"][left])
+        mean = sy / n
+        variance = max(0.0, (sy2 - sy * sy / n) / max(1, n - 1))
+        denom = n * sx2 - sx * sx
+        slope = 0.0 if abs(denom) <= 1e-12 else float((n * sxy - sx * sy) / denom)
+        return {
+            "count": n,
+            "mean": mean,
+            "sd": float(np.sqrt(variance)),
+            "slope": slope,
+        }
+
+    search_start = t_start + total_duration * (1.0 - tail_fraction)
+    latest_start = t_end - min_window_ms
+    start_values = np.arange(search_start, latest_start + stride_ms * 0.5, stride_ms)
+    start_values = np.unique(np.concatenate((start_values, [search_start, latest_start])))
+    window_lengths = np.unique(np.asarray([
+        min_window_ms,
+        min_window_ms * 2.0,
+        min_window_ms * 4.0,
+        total_duration * 0.5,
+        total_duration,
+    ], dtype=float))
+
+    candidate_bounds: set[tuple[float, float]] = set()
+    for start_value in start_values:
+        if start_value < t_start or start_value > latest_start:
+            continue
+        for length in window_lengths:
+            if length < min_window_ms:
+                continue
+            end_value = min(t_end, float(start_value + length))
+            if end_value - start_value >= min_window_ms:
+                candidate_bounds.add((round(float(start_value), 6), round(float(end_value), 6)))
+
+    for length in window_lengths:
+        if length < min_window_ms or length > total_duration:
+            continue
+        candidate_bounds.add((round(float(t_end - length), 6), round(t_end, 6)))
+
+    full_metrics = _full_volume_metrics(trace)
+    evaporation_penalty = 0.0
+    if (
+        full_metrics["lossPct"] is not None
+        and full_metrics["lossPct"] > float(qc_options["maxVolumeLossPct"])
+    ):
+        evaporation_penalty += 1.0
+    if (
+        full_metrics["evaporationRatePctPerMin"] is not None
+        and full_metrics["evaporationRatePctPerMin"] > float(qc_options["maxEvaporationRatePctPerMin"])
+    ):
+        evaporation_penalty += 1.0
+
+    candidates: list[tuple[float, float, int, float, float]] = []
+    for start_value, end_value in candidate_bounds:
+        left = int(np.searchsorted(time_values, start_value, side="left"))
+        right = int(np.searchsorted(time_values, end_value, side="right"))
+        window_stats = stats(left, right)
+        if window_stats is None:
+            continue
+
+        duration = float(end_value - start_value)
+        slope_score = abs(float(window_stats["slope"])) / max(float(qc_options["maxAbsSlopeMnMPerMin"]), 1e-9)
+        noise_score = float(window_stats["sd"]) / max(float(qc_options["maxPlateauSdMnM"]), 1e-9)
+        later_score = (t_end - end_value) / max(total_duration, 1.0)
+        width_score = -duration / max(total_duration, 1.0)
+        score = slope_score * 2.0 + noise_score + later_score * 0.75 + width_score * 0.25 + evaporation_penalty
+        candidates.append((score, -end_value, -int(window_stats["count"]), start_value, end_value))
 
     if not candidates:
-        return CmcDropletQc(
-            gamma_eq=None,
-            gamma_sd=None,
-            gamma_se=None,
-            plateau_start_ms=None,
-            plateau_end_ms=None,
-            slope_mn_m_per_min=None,
-            point_count=0,
-            volume_start_ul=None,
-            volume_end_ul=None,
-            volume_loss_pct=None,
-            flags=[QC_NO_PLATEAU],
-            used_for_aggregate=False,
-            exclude_reason=QC_NO_PLATEAU,
-        )
+        return _empty_qc(QC_NO_PLATEAU, trace)
 
     candidates.sort(key=lambda item: (item[0], item[1], item[2]))
-    return candidates[0][3]
+    _, _, _, best_start, best_end = candidates[0]
+    mask = valid_mask & (trace.time >= best_start) & (trace.time <= best_end)
+    qc = _fit_window_qc(trace, mask, qc_options)
+    if qc.point_count == 0:
+        return _empty_qc(QC_NO_PLATEAU, trace)
+    return qc
 
 
 def mark_outliers_within_concentration(qc_results: Sequence[CmcDropletQc]) -> None:
@@ -627,6 +844,7 @@ def mark_outliers_within_concentration(qc_results: Sequence[CmcDropletQc]) -> No
             continue
         if abs(float(qc.gamma_eq) - median) > threshold:
             _append_flag(qc.flags, QC_OUTLIER_WITHIN_CONCENTRATION)
+            _finalize_qc_usage(qc)
 
 
 def aggregate_cmc_qc_results(

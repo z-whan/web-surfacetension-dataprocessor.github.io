@@ -1,6 +1,7 @@
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -29,6 +30,7 @@ from web_bridge import (  # noqa: E402
     analyze_time_series_quality,
     extract_plot_trend,
     infer_concentration,
+    review_cmc_files,
 )
 
 
@@ -130,6 +132,70 @@ class WebBridgeTests(unittest.TestCase):
             rows.append(row)
 
         content = "\n".join(",".join(row) for row in rows) + "\n"
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="shift_jis") as handle:
+            handle.write(content)
+            return handle.name
+
+    def _write_famas_slots_fixture(
+        self,
+        *,
+        configured_slots: int = 10,
+        actual_repeats: int = 3,
+        row_count: int = 12,
+        volume_traces=None,
+        gamma_traces=None,
+    ) -> str:
+        time_values = [idx * 1000 for idx in range(row_count)]
+        if gamma_traces is None:
+            gamma_traces = [
+                [70.0 + exp + (0.02 if idx >= row_count // 2 else 0.5 - idx * 0.05) for idx in range(row_count)]
+                for exp in range(actual_repeats)
+            ]
+        if volume_traces is None:
+            volume_traces = [
+                [10.0 - idx * 0.01 for idx in range(row_count)]
+                for _ in range(actual_repeats)
+            ]
+
+        prefix = [""]
+        header = ["時間(ms)"]
+        for exp_index in range(1, configured_slots + 1):
+            prefix.extend([str(exp_index), str(exp_index), str(exp_index)])
+            header.extend(["d(g/cm^3)", "I.T.(mN/m)", "V(uL)"])
+        prefix.extend(["Avg.", "S.D."])
+        header.extend(["I.T.(mN/m)", "I.T.(mN/m)"])
+
+        rows = [
+            ["[WORKSHEET]"],
+            ["測定間隔(ms)", "1000"],
+            ["回数", str(row_count)],
+            ["解析方法", "Fitting-Laplace"],
+            ["測定までの待ち時間(ms)", "1000"],
+            ["作成液量(uL)", "10"],
+            ["くり返し回数", str(actual_repeats)],
+            ["d(g/cm^3)", "1.0000"],
+            prefix,
+            header,
+        ]
+        for row_index, time_value in enumerate(time_values):
+            row = [str(time_value)]
+            actual_gamma_values = []
+            for exp_index in range(1, configured_slots + 1):
+                row.append("1.0000")
+                if exp_index <= actual_repeats:
+                    gamma = gamma_traces[exp_index - 1][row_index]
+                    volume = volume_traces[exp_index - 1][row_index]
+                    row.append(str(gamma))
+                    row.append(str(volume))
+                    actual_gamma_values.append(float(gamma))
+                else:
+                    row.append("0" if row_index == 0 else "")
+                    row.append("")
+            row.append(str(sum(actual_gamma_values) / len(actual_gamma_values)))
+            row.append("0.1")
+            rows.append(row)
+
+        content = "\n".join(",".join(str(cell) for cell in row) for row in rows) + "\n"
         with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="shift_jis") as handle:
             handle.write(content)
             return handle.name
@@ -439,6 +505,8 @@ class WebBridgeTests(unittest.TestCase):
             self.assertEqual(metadata["sourceFormat"], "famas_multi_experiment_csv")
             self.assertEqual(metadata["analysisMethod"], "懸滴法")
             self.assertEqual(metadata["repeatCount"], 3)
+            self.assertEqual(metadata["configuredExperimentSlotCount"], 3)
+            self.assertEqual(metadata["actualRepeatCount"], 3)
             self.assertAlmostEqual(metadata["densityDeltaGPerCm3"], 0.998)
 
             payload = analyze_cmc_files(
@@ -447,6 +515,7 @@ class WebBridgeTests(unittest.TestCase):
                 t_max_text="2000",
                 c_unit="mM",
                 use_log=False,
+                options={"maxAbsSlopeMnMPerMin": 99},
             )
 
             self.assertEqual(payload["points"][0]["dropletCount"], 3)
@@ -455,6 +524,8 @@ class WebBridgeTests(unittest.TestCase):
             self.assertEqual(file_info["detectedDropletCount"], 3)
             self.assertEqual(file_info["metadata"]["analysisMethod"], "懸滴法")
             self.assertEqual(file_info["metadata"]["repeatCount"], 3)
+            self.assertEqual(file_info["metadata"]["configuredExperimentSlotCount"], 3)
+            self.assertEqual(file_info["metadata"]["actualRepeatCount"], 3)
             self.assertAlmostEqual(file_info["metadata"]["densityDeltaGPerCm3"], 0.998)
             self.assertEqual(
                 [droplet["sourceColumn"] for droplet in file_info["droplets"]],
@@ -469,9 +540,9 @@ class WebBridgeTests(unittest.TestCase):
 
     def test_analyze_cmc_files_auto_plateau_returns_three_droplets(self):
         path = self._write_cmc_famas_csv([
-            [73, 72, 71, 70.2, 70.1, 70.0, 70.0, 70.0, 70.0, 70.1, 70.0],
-            [74, 73, 72, 71.2, 71.1, 71.0, 71.0, 71.0, 71.0, 71.1, 71.0],
-            [75, 74, 73, 72.2, 72.1, 72.0, 72.0, 72.0, 72.0, 72.1, 72.0],
+            [73, 72, 71, 70.2, 70.1, 70.0, 70.0, 70.0, 70.0, 70.0, 70.0],
+            [74, 73, 72, 71.2, 71.1, 71.0, 71.0, 71.0, 71.0, 71.0, 71.0],
+            [75, 74, 73, 72.2, 72.1, 72.0, 72.0, 72.0, 72.0, 72.0, 72.0],
         ])
 
         try:
@@ -489,6 +560,173 @@ class WebBridgeTests(unittest.TestCase):
             self.assertEqual(payload["rows"][0]["usedDropletCount"], 3)
             self.assertTrue(all(droplet["qc"]["usedForAggregate"] for droplet in file_info["droplets"]))
             self.assertTrue(all(droplet["qc"]["plateauStartMs"] >= 3000 for droplet in file_info["droplets"]))
+        finally:
+            os.unlink(path)
+
+    def test_famas_review_counts_actual_repeats_not_reserved_slots(self):
+        path = self._write_famas_slots_fixture(configured_slots=10, actual_repeats=3, row_count=12)
+
+        try:
+            metadata = parse_famas_metadata(path)
+            self.assertEqual(metadata["repeatCount"], 3)
+            self.assertEqual(metadata["rawRepeatCount"], 3)
+            self.assertEqual(metadata["configuredExperimentSlotCount"], 10)
+            self.assertEqual(metadata["actualRepeatCount"], 3)
+            self.assertEqual(metadata["analysisMethod"], "Fitting-Laplace")
+            self.assertAlmostEqual(metadata["densityDeltaGPerCm3"], 1.0)
+            self.assertEqual(metadata["measurementIntervalMs"], 1000)
+            self.assertEqual(metadata["measurementCount"], 12)
+            self.assertEqual(metadata["targetDropVolumeUL"], 10)
+            self.assertEqual(metadata["waitBeforeMeasurementMs"], 1000)
+
+            review = review_cmc_files(
+                entries=[{"path": path, "filename": "slots.csv"}],
+                t_min_text="0",
+                t_max_text="11000",
+                options={"plateauMode": "auto", "minPlateauWindowMs": 4000},
+            )
+            self.assertEqual(review["files"][0]["detectedDropletCount"], 3)
+            self.assertEqual(len(review["droplets"]), 3)
+            self.assertEqual(
+                [droplet["sourceColumn"] for droplet in review["files"][0]["droplets"]],
+                ["I.T.(mN/m).1", "I.T.(mN/m).2", "I.T.(mN/m).3"],
+            )
+            self.assertEqual(review["files"][0]["metadata"]["configuredExperimentSlotCount"], 10)
+            self.assertEqual(review["files"][0]["metadata"]["actualRepeatCount"], 3)
+        finally:
+            os.unlink(path)
+
+    def test_cmc_volume_qc_separates_full_and_plateau_loss(self):
+        stable_gamma = [[70.0 for _ in range(20)], [71.0 for _ in range(20)], [72.0 for _ in range(20)]]
+        volumes = [
+            [10.0 - idx * 0.03 for idx in range(20)],
+            [10.0 for _ in range(20)],
+            [10.0 for _ in range(20)],
+        ]
+        path = self._write_famas_slots_fixture(
+            configured_slots=10,
+            actual_repeats=3,
+            row_count=20,
+            gamma_traces=stable_gamma,
+            volume_traces=volumes,
+        )
+
+        try:
+            payload = analyze_cmc_files(
+                entries=[{"path": path, "filename": "evap.csv", "concentration": "1"}],
+                t_min_text="15000",
+                t_max_text="19000",
+                c_unit="mM",
+                use_log=False,
+                options={
+                    "plateauMode": "manual",
+                    "minPlateauWindowMs": 4000,
+                    "maxVolumeLossPct": 3.0,
+                    "maxEvaporationRatePctPerMin": 100.0,
+                },
+            )
+            qc = payload["files"][0]["droplets"][0]["qc"]
+            self.assertGreater(qc["fullVolumeLossPct"], qc["plateauVolumeLossPct"])
+            self.assertIn("HIGH_VOLUME_LOSS", qc["flags"])
+            self.assertFalse(qc["usedForAggregate"])
+            self.assertEqual(payload["rows"][0]["usedDropletCount"], 2)
+        finally:
+            os.unlink(path)
+
+    def test_cmc_full_evaporation_rate_flags_used_false(self):
+        path = self._write_cmc_famas_csv(
+            [
+                [70.0 for _ in range(11)],
+                [71.0 for _ in range(11)],
+                [72.0 for _ in range(11)],
+            ],
+            volume_traces=[
+                [10.0 - idx * 0.06 for idx in range(11)],
+                [10.0 for _ in range(11)],
+                [10.0 for _ in range(11)],
+            ],
+        )
+
+        try:
+            payload = analyze_cmc_files(
+                entries=[{"path": path, "filename": "rate.csv", "concentration": "2"}],
+                t_min_text="0",
+                t_max_text="10000",
+                c_unit="mM",
+                use_log=False,
+                options={
+                    "plateauMode": "auto",
+                    "minPlateauWindowMs": 4000,
+                    "maxVolumeLossPct": 99.0,
+                    "maxEvaporationRatePctPerMin": 0.5,
+                },
+            )
+            qc = payload["files"][0]["droplets"][0]["qc"]
+            self.assertIn("HIGH_EVAPORATION", qc["flags"])
+            self.assertFalse(qc["usedForAggregate"])
+        finally:
+            os.unlink(path)
+
+    def test_cmc_outlier_within_concentration_defaults_used_false(self):
+        path = self._write_cmc_famas_csv([
+            [70.0 for _ in range(11)],
+            [71.0 for _ in range(11)],
+            [72.0 for _ in range(11)],
+            [90.0 for _ in range(11)],
+        ])
+
+        try:
+            payload = analyze_cmc_files(
+                entries=[{"path": path, "filename": "outlier.csv", "concentration": "3"}],
+                t_min_text="0",
+                t_max_text="10000",
+                c_unit="mM",
+                use_log=False,
+                options={"plateauMode": "manual"},
+            )
+            outlier_qc = payload["files"][0]["droplets"][-1]["qc"]
+            self.assertIn("OUTLIER_WITHIN_CONCENTRATION", outlier_qc["flags"])
+            self.assertFalse(outlier_qc["usedForAggregate"])
+            self.assertEqual(payload["rows"][0]["usedDropletCount"], 3)
+        finally:
+            os.unlink(path)
+
+    def test_cmc_auto_plateau_performance_for_many_points(self):
+        row_count = 600
+        gamma_traces = []
+        volume_traces = []
+        for exp in range(3):
+            gamma_traces.append([
+                76.0 - idx * 0.02 if idx < 200 else 70.0 + exp + np.sin(idx / 20) * 0.02
+                for idx in range(row_count)
+            ])
+            volume_traces.append([10.0 - idx * 0.0005 for idx in range(row_count)])
+        path = self._write_famas_slots_fixture(
+            configured_slots=10,
+            actual_repeats=3,
+            row_count=row_count,
+            gamma_traces=gamma_traces,
+            volume_traces=volume_traces,
+        )
+
+        try:
+            start = time.perf_counter()
+            review = review_cmc_files(
+                entries=[{"path": path, "filename": "large.csv"}],
+                t_min_text="0",
+                t_max_text=str((row_count - 1) * 1000),
+                options={
+                    "plateauMode": "auto",
+                    "minPlateauWindowMs": 30000,
+                    "plateauSearchStrideMs": 5000,
+                },
+            )
+            elapsed = time.perf_counter() - start
+            self.assertEqual(review["files"][0]["detectedDropletCount"], 3)
+            self.assertLess(elapsed, 2.0)
+            for droplet in review["files"][0]["droplets"]:
+                self.assertGreaterEqual(droplet["qc"]["plateauStartMs"], 170000)
+                self.assertAlmostEqual(droplet["qc"]["gammaEq"], 70.0 + droplet["dropletIndex"] - 1, delta=0.2)
         finally:
             os.unlink(path)
 
@@ -514,7 +752,8 @@ class WebBridgeTests(unittest.TestCase):
             )
             flags = payload["files"][0]["droplets"][0]["qc"]["flags"]
             self.assertIn("HIGH_FINAL_DRIFT", flags)
-            self.assertTrue(payload["files"][0]["droplets"][0]["qc"]["usedForAggregate"])
+            self.assertFalse(payload["files"][0]["droplets"][0]["qc"]["usedForAggregate"])
+            self.assertEqual(payload["rows"][0]["usedDropletCount"], 2)
         finally:
             os.unlink(path)
 
@@ -547,8 +786,9 @@ class WebBridgeTests(unittest.TestCase):
             )
             qc = payload["files"][0]["droplets"][0]["qc"]
             self.assertIn("HIGH_VOLUME_LOSS", qc["flags"])
-            self.assertGreater(qc["volumeLossPct"], 10)
-            self.assertTrue(qc["usedForAggregate"])
+            self.assertGreater(qc["fullVolumeLossPct"], 10)
+            self.assertIsNotNone(qc["plateauVolumeLossPct"])
+            self.assertFalse(qc["usedForAggregate"])
         finally:
             os.unlink(path)
 

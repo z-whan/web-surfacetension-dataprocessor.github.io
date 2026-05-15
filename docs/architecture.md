@@ -52,6 +52,13 @@ diagnostics are all preserved so JSON exports can be audited later. When Python
 CMC code changes, regenerate `assets/js/python-sources.js` from `py/` before
 testing or committing.
 
+The CMC backend also exposes a review-only path through `review_cmc_files`.
+It performs FAMAS metadata extraction, valid droplet detection, plateau QC, and
+default accept/exclude decisions without concentration transforms or curve
+fitting. For FAMAS exports, configured experiment slots are reported separately
+from actual valid repeats, and evaporation QC is based on full-droplet volume
+loss/rate while plateau-window volume loss remains available for review.
+
 ## Publication Plot Styling
 
 `assets/js/publication-plot.js` receives copied Plotly figures from analysis

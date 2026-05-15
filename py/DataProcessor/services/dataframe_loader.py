@@ -113,6 +113,96 @@ def _find_famas_worksheet_header(rows: list[list[str]]) -> int | None:
     return None
 
 
+def _famas_header_prefix(rows: list[list[str]], header_idx: int) -> list[str]:
+    header = rows[header_idx]
+    prefix = rows[header_idx - 1]
+    if len(prefix) < len(header):
+        prefix = [""] * (len(header) - len(prefix)) + prefix
+    elif len(prefix) > len(header):
+        prefix = prefix[-len(header) :]
+    return prefix
+
+
+def _famas_measurement_rows(
+    rows: list[list[str]],
+    header_idx: int,
+    *,
+    time_idx: int | None = None,
+    max_col: int | None = None,
+) -> list[list[str]]:
+    if time_idx is None:
+        header = rows[header_idx]
+        try:
+            time_idx = next(i for i, cell in enumerate(header) if (cell or "").strip() == "時間(ms)")
+        except StopIteration:
+            return []
+
+    data_rows: list[list[str]] = []
+    for row in rows[header_idx + 1 :]:
+        if len(row) <= time_idx:
+            break
+        t_val = row[time_idx]
+        t_text = str(t_val).strip() if t_val is not None else ""
+        if not t_text or (t_text.startswith("[") and t_text.endswith("]")):
+            break
+        data_rows.append(row[: max_col + 1] if max_col is not None else row)
+    return data_rows
+
+
+def _famas_experiment_columns(rows: list[list[str]], header_idx: int) -> list[tuple[int, int]]:
+    if header_idx == 0:
+        return []
+
+    header = rows[header_idx]
+    prefix = _famas_header_prefix(rows, header_idx)
+    experiment_cols: list[tuple[int, int]] = []
+    for col_idx, (pfx, col_name) in enumerate(zip(prefix, header)):
+        tag = (pfx or "").strip()
+        name = (col_name or "").strip()
+        if tag.isdigit() and name == "I.T.(mN/m)":
+            experiment_cols.append((int(tag), col_idx))
+
+    return sorted(experiment_cols, key=lambda item: item[0])
+
+
+def _surface_tension_values_are_valid(values: list[object]) -> bool:
+    numeric = pd.to_numeric(pd.Series(values), errors="coerce")
+    finite = numeric.dropna().astype(float)
+    if finite.empty:
+        return False
+
+    min_required = max(2, min(5, int(len(values) * 0.2)))
+    if len(finite) < min_required:
+        return False
+    if (finite.abs() > 1e-12).sum() == 0:
+        return False
+
+    plausible = finite[(finite >= 1.0) & (finite <= 200.0)]
+    return len(plausible) >= min_required
+
+
+def _valid_famas_experiment_indexes(rows: list[list[str]], header_idx: int) -> set[int]:
+    experiment_cols = _famas_experiment_columns(rows, header_idx)
+    if not experiment_cols:
+        return set()
+
+    try:
+        time_idx = next(
+            i for i, cell in enumerate(rows[header_idx]) if (cell or "").strip() == "時間(ms)"
+        )
+    except StopIteration:
+        return set()
+
+    max_col = max([time_idx] + [col_idx for _, col_idx in experiment_cols])
+    data_rows = _famas_measurement_rows(rows, header_idx, time_idx=time_idx, max_col=max_col)
+    valid: set[int] = set()
+    for exp_num, col_idx in experiment_cols:
+        values = [row[col_idx] if col_idx < len(row) else "" for row in data_rows]
+        if _surface_tension_values_are_valid(values):
+            valid.add(exp_num)
+    return valid
+
+
 def _normalized_metadata_value(raw_items: dict[str, str], patterns: tuple[str, ...]):
     for key, value in raw_items.items():
         key_norm = key.strip().lower().replace(" ", "")
@@ -197,22 +287,7 @@ def _count_famas_measurement_rows(rows: list[list[str]], header_idx: int) -> int
 
 
 def _count_famas_experiments(rows: list[list[str]], header_idx: int) -> int | None:
-    if header_idx == 0:
-        return None
-
-    header = rows[header_idx]
-    prefix = rows[header_idx - 1]
-    if len(prefix) < len(header):
-        prefix = [""] * (len(header) - len(prefix)) + prefix
-    elif len(prefix) > len(header):
-        prefix = prefix[-len(header) :]
-
-    indexes = {
-        int((pfx or "").strip())
-        for pfx, col_name in zip(prefix, header)
-        if (pfx or "").strip().isdigit()
-        and (col_name or "").strip() == "I.T.(mN/m)"
-    }
+    indexes = {exp_num for exp_num, _ in _famas_experiment_columns(rows, header_idx)}
     return len(indexes) if indexes else None
 
 
@@ -238,7 +313,7 @@ def parse_famas_metadata(csv_path: str) -> dict[str, object]:
 
     analysis_method = _normalized_metadata_value(
         raw_items,
-        ("analysismethod", "method", "解析法", "測定法", "測定方法", "メソッド"),
+        ("analysismethod", "method", "解析法", "解析方法", "測定法", "測定方法", "メソッド"),
     )
     measurement_interval_raw = _normalized_metadata_value(
         raw_items,
@@ -246,19 +321,28 @@ def parse_famas_metadata(csv_path: str) -> dict[str, object]:
     )
     measurement_count_raw = _normalized_metadata_value(
         raw_items,
-        ("measurementcount", "pointcount", "測定点数", "測定数"),
+        ("measurementcount", "pointcount", "測定点数", "測定数", "回数"),
     )
     wait_before_raw = _normalized_metadata_value(
         raw_items,
-        ("waitbeforemeasurement", "waittime", "待機時間", "測定待ち", "待ち時間"),
+        ("waitbeforemeasurement", "waittime", "待機時間", "測定待ち", "待ち時間", "測定までの待ち時間"),
     )
     target_volume_raw = _normalized_metadata_value(
         raw_items,
-        ("targetdropvolume", "targetvolume", "滴下量", "液滴量", "目標体積"),
+        ("targetdropvolume", "targetvolume", "滴下量", "液滴量", "目標体積", "作成液量"),
     )
     repeat_count_raw = _normalized_metadata_value(
         raw_items,
-        ("repeatcount", "repeats", "繰返", "繰り返", "反復"),
+        (
+            "repeatcount",
+            "repeats",
+            "repeat",
+            "くり返し",
+            "くり返し回数",
+            "繰り返し",
+            "繰返",
+            "反復",
+        ),
     )
     density_raw = _normalized_metadata_value(
         raw_items,
@@ -277,9 +361,10 @@ def parse_famas_metadata(csv_path: str) -> dict[str, object]:
     if measurement_count is None:
         measurement_count = _count_famas_measurement_rows(rows, header_idx)
 
-    repeat_count = _numeric_or_none(repeat_count_raw)
-    if repeat_count is None:
-        repeat_count = _count_famas_experiments(rows, header_idx)
+    configured_slot_count = _count_famas_experiments(rows, header_idx)
+    actual_repeat_count = len(_valid_famas_experiment_indexes(rows, header_idx))
+    raw_repeat_count = _numeric_or_none(repeat_count_raw)
+    repeat_count = raw_repeat_count if raw_repeat_count is not None else actual_repeat_count
 
     density_delta = _numeric_or_none(density_raw)
     if density_delta is None:
@@ -296,6 +381,9 @@ def parse_famas_metadata(csv_path: str) -> dict[str, object]:
         ),
         "targetDropVolumeUL": _numeric_or_none(target_volume_raw),
         "repeatCount": repeat_count,
+        "rawRepeatCount": raw_repeat_count,
+        "configuredExperimentSlotCount": configured_slot_count,
+        "actualRepeatCount": actual_repeat_count,
         "densityDeltaGPerCm3": density_delta,
         "raw": raw_items,
     }
@@ -345,7 +433,21 @@ def try_parse_famas_multi_experiment_csv(csv_path: str) -> pd.DataFrame | None:
     if not experiment_cols:
         return None
 
+    valid_experiment_indexes = _valid_famas_experiment_indexes(rows, header_idx)
+    if valid_experiment_indexes:
+        experiment_cols = [
+            (exp_num, col_idx)
+            for exp_num, col_idx in experiment_cols
+            if exp_num in valid_experiment_indexes
+        ]
+
     experiment_cols.sort(key=lambda item: item[0])
+    if valid_experiment_indexes:
+        volume_cols = [
+            (exp_num, col_idx)
+            for exp_num, col_idx in volume_cols
+            if exp_num in valid_experiment_indexes
+        ]
     volume_cols.sort(key=lambda item: item[0])
     max_col = max(
         [time_idx]
@@ -354,15 +456,12 @@ def try_parse_famas_multi_experiment_csv(csv_path: str) -> pd.DataFrame | None:
         + ([avg_idx] if avg_idx is not None else [])
     )
 
-    data_rows = []
-    for row in rows[header_idx + 1 :]:
-        if len(row) <= time_idx:
-            break
-        t_val = row[time_idx]
-        t_text = str(t_val).strip() if t_val is not None else ""
-        if not t_text or (t_text.startswith("[") and t_text.endswith("]")):
-            break
-        data_rows.append(row[: max_col + 1])
+    data_rows = _famas_measurement_rows(
+        rows,
+        header_idx,
+        time_idx=time_idx,
+        max_col=max_col,
+    )
 
     if not data_rows:
         return None

@@ -444,17 +444,7 @@ def analyze_plot_noise(
     }
 
 
-def analyze_cmc_files(
-    entries: list[dict[str, Any]],
-    t_min_text: str,
-    t_max_text: str,
-    c_unit: str,
-    use_log: bool,
-    options: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    if not entries:
-        raise DataProcessingError("Please choose at least one file.")
-
+def _parse_cmc_time_range(t_min_text: str, t_max_text: str) -> tuple[float, float]:
     try:
         t_min = float(str(t_min_text).strip())
         t_max = float(str(t_max_text).strip())
@@ -464,17 +454,152 @@ def analyze_cmc_files(
     if t_min >= t_max:
         raise DataProcessingError("Please ensure t_min < t_max.")
 
+    return t_min, t_max
+
+
+def _load_cmc_file_review(
+    entry: dict[str, Any],
+    *,
+    t_min: float,
+    t_max: float,
+    qc_options: dict[str, Any],
+) -> tuple[dict[str, Any], list[Any], list[Any]]:
+    path = str(entry.get("path", "")).strip()
+    filename = str(entry.get("filename", "")).strip() or os.path.basename(path)
+
+    if not path:
+        raise DataProcessingError(f"Missing file path for '{filename or 'unknown file'}'.")
+    if not os.path.isfile(path):
+        raise DataProcessingError(f"File not found in browser runtime: {path}")
+
+    # Reuse the same robust loader as the plot workflow so FAMAS-style CSVs
+    # and encoded lab exports behave consistently across both tools.
+    df = load_plot_dataframe(path)
+    metadata = {}
+    if path.lower().endswith(".csv"):
+        metadata = parse_famas_metadata(path)
+    if not metadata:
+        metadata = df.attrs.get("famasMetadata", {}) or {}
+    if not metadata:
+        metadata = {"sourceFormat": "generic_table"}
+
+    droplet_traces = extract_cmc_droplet_traces(df, metadata)
+    droplet_qc = [
+        compute_droplet_plateau_qc(
+            trace,
+            mode=qc_options["plateauMode"],
+            t_min=t_min,
+            t_max=t_max,
+            options=qc_options,
+        )
+        for trace in droplet_traces
+    ]
+    mark_outliers_within_concentration(droplet_qc)
+
+    droplet_payloads = [
+        _payload_value({
+            **trace.to_payload(),
+            "filename": filename,
+            "path": path,
+            "qc": qc.to_payload(),
+            "usedForAggregate": qc.used_for_aggregate,
+            "excludeReason": qc.exclude_reason,
+        })
+        for trace, qc in zip(droplet_traces, droplet_qc)
+    ]
+    file_payload = {
+        "filename": filename,
+        "path": path,
+        "metadata": _payload_value(metadata),
+        "detectedDropletCount": len(droplet_traces),
+        "acceptedDropletCount": sum(1 for qc in droplet_qc if qc.used_for_aggregate),
+        "warningCount": sum(1 for qc in droplet_qc if qc.flags),
+        "droplets": droplet_payloads,
+    }
+    return file_payload, droplet_traces, droplet_qc
+
+
+def _build_cmc_review_payload(
+    entries: list[dict[str, Any]],
+    t_min_text: str,
+    t_max_text: str,
+    options: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    if not entries:
+        raise DataProcessingError("Please choose at least one file.")
+
+    t_min, t_max = _parse_cmc_time_range(t_min_text, t_max_text)
     qc_options = normalize_cmc_qc_options(options)
+
+    files: list[dict[str, Any]] = []
+    internals: list[dict[str, Any]] = []
+    for file_index, entry in enumerate(entries):
+        file_payload, droplet_traces, droplet_qc = _load_cmc_file_review(
+            entry,
+            t_min=t_min,
+            t_max=t_max,
+            qc_options=qc_options,
+        )
+        for droplet in file_payload["droplets"]:
+            droplet["fileIndex"] = file_index
+        files.append(file_payload)
+        internals.append({
+            "entry": entry,
+            "file": file_payload,
+            "traces": droplet_traces,
+            "qc": droplet_qc,
+        })
+
+    flat_droplets = [
+        droplet
+        for file_payload in files
+        for droplet in file_payload["droplets"]
+    ]
+    review_payload = {
+        "files": files,
+        "droplets": flat_droplets,
+        "qc": [droplet.get("qc", {}) for droplet in flat_droplets],
+        "options": _payload_value(qc_options),
+        "summary": {
+            "fileCount": len(files),
+            "dropletCount": len(flat_droplets),
+            "acceptedDropletCount": sum(1 for droplet in flat_droplets if droplet.get("usedForAggregate")),
+            "warningCount": sum(1 for droplet in flat_droplets if (droplet.get("qc") or {}).get("flags")),
+            "timeWindow": [_finite_or_none(t_min), _finite_or_none(t_max)],
+            "plateauMode": qc_options["plateauMode"],
+        },
+    }
+    return review_payload, internals
+
+
+def review_cmc_files(
+    entries: list[dict[str, Any]],
+    t_min_text: str,
+    t_max_text: str,
+    options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    review_payload, _ = _build_cmc_review_payload(entries, t_min_text, t_max_text, options)
+    return review_payload
+
+
+def analyze_cmc_files(
+    entries: list[dict[str, Any]],
+    t_min_text: str,
+    t_max_text: str,
+    c_unit: str,
+    use_log: bool,
+    options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    review_payload, review_internals = _build_cmc_review_payload(entries, t_min_text, t_max_text, options)
+    qc_options = review_payload["options"]
+
     rows: list[dict[str, Any]] = []
-    for entry in entries:
-        path = str(entry.get("path", "")).strip()
-        filename = str(entry.get("filename", "")).strip() or os.path.basename(path)
+    for item in review_internals:
+        entry = item["entry"]
+        filename = item["file"]["filename"]
+        path = item["file"]["path"]
         concentration_text = str(entry.get("concentration", "")).strip()
 
-        if not path:
-            raise DataProcessingError(f"Missing file path for '{filename or 'unknown file'}'.")
-        if not os.path.isfile(path):
-            raise DataProcessingError(f"File not found in browser runtime: {path}")
         if not concentration_text:
             raise DataProcessingError(f"Concentration is required for '{filename}'.")
 
@@ -488,35 +613,18 @@ def analyze_cmc_files(
         if concentration < 0:
             raise DataProcessingError(f"Concentration for '{filename}' must be >= 0.")
 
-        # Reuse the same robust loader as the plot workflow so FAMAS-style CSVs
-        # and encoded lab exports behave consistently across both tools.
-        df = load_plot_dataframe(path)
-        metadata = {}
-        if path.lower().endswith(".csv"):
-            metadata = parse_famas_metadata(path)
-        if not metadata:
-            metadata = df.attrs.get("famasMetadata", {}) or {}
-        if not metadata:
-            metadata = {"sourceFormat": "generic_table"}
-
-        droplet_traces = extract_cmc_droplet_traces(df, metadata)
-        droplet_qc = [
-            compute_droplet_plateau_qc(
-                trace,
-                mode=qc_options["plateauMode"],
-                t_min=t_min,
-                t_max=t_max,
-                options=qc_options,
-            )
-            for trace in droplet_traces
-        ]
-        mark_outliers_within_concentration(droplet_qc)
+        droplet_traces = item["traces"]
+        droplet_qc = item["qc"]
         aggregate = aggregate_cmc_qc_results(
             droplet_qc,
             aggregation_method=str(qc_options["aggregationMethod"]),
         )
         aggregate_payload = aggregate.to_payload()
         warning_count = sum(1 for qc in droplet_qc if qc.flags)
+        file_payload = {
+            **item["file"],
+            "aggregate": _payload_value(aggregate_payload),
+        }
 
         rows.append(
             {
@@ -536,22 +644,7 @@ def analyze_cmc_files(
                 "aggregationMethod": aggregate.aggregation_method,
                 "usedForAggregate": aggregate.used_droplet_count > 0,
                 "warningCount": warning_count,
-                "file": {
-                    "filename": filename,
-                    "path": path,
-                    "metadata": _payload_value(metadata),
-                    "detectedDropletCount": len(droplet_traces),
-                    "aggregate": _payload_value(aggregate_payload),
-                    "droplets": [
-                        _payload_value({
-                            **trace.to_payload(),
-                            "qc": qc.to_payload(),
-                            "usedForAggregate": qc.used_for_aggregate,
-                            "excludeReason": qc.exclude_reason,
-                        })
-                        for trace, qc in zip(droplet_traces, droplet_qc)
-                    ],
-                },
+                "file": file_payload,
             }
         )
 
@@ -630,7 +723,7 @@ def analyze_cmc_files(
         "options": _payload_value(qc_options),
         "summary": {
             "fileCount": len(plot_rows),
-            "timeWindow": [_finite_or_none(t_min), _finite_or_none(t_max)],
+            "timeWindow": review_payload["summary"]["timeWindow"],
             "plateauMode": qc_options["plateauMode"],
             "aggregationMethod": qc_options["aggregationMethod"],
         },

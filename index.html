@@ -26,7 +26,7 @@
     <script src="./assets/js/pyodide-client.js?v=20260424a" defer></script>
     <script src="./assets/js/time-series-module.js?v=20260501d" defer></script>
     <script src="./assets/js/compare-module.js?v=20260501c" defer></script>
-    <script src="./assets/js/app.js?v=20260515b" defer></script>
+    <script src="./assets/js/app.js?v=20260515c" defer></script>
   </head>
   <body>
     <main class="app-shell">
@@ -430,10 +430,13 @@
       </section>
 
       <section class="panel" data-tab-panel="cmc" hidden>
-        <header class="panel-header">
+        <header class="panel-header panel-header-actions">
           <div>
             <h2>CMC Analysis</h2>
             <p>Choose files, review droplet QC, and fit a segmented transition when the concentration series supports it.</p>
+          </div>
+          <div class="button-row">
+            <button id="cmc-help-button" class="ghost-button" type="button">Help</button>
           </div>
         </header>
 
@@ -497,7 +500,6 @@
                           <option value="standard" selected>Standard</option>
                           <option value="full">Full</option>
                         </select>
-                        <p class="field-hint">Fast for exploration; Full may be slower and is intended for final reporting.</p>
                       </div>
                       <div class="field">
                         <label for="cmc-min-plateau-window">Min Plateau Window (ms)</label>
@@ -626,10 +628,137 @@
         <div class="table-card">
           <h3>Droplet QC Review</h3>
           <div class="empty-state" data-cmc-droplet-empty>
-            Run CMC analysis to review droplet-level QC.
+            Run Review Droplet QC to inspect per-droplet plateau windows, flags, and Used status.
           </div>
           <div data-cmc-droplet-review></div>
         </div>
+
+        <dialog id="cmc-help-dialog" class="help-dialog">
+          <div class="help-dialog-body">
+            <div class="help-dialog-header">
+              <h3>CMC Workflow Help</h3>
+              <button id="cmc-help-close" class="ghost-button" type="button">Close</button>
+            </div>
+
+            <section class="help-section">
+              <h3>Workflow</h3>
+              <div class="help-item">
+                <h4>Review Droplet QC</h4>
+                <p><strong>Purpose:</strong> Reads files, extracts per-droplet traces, finds equilibrium plateaus, and assigns QC flags.</p>
+                <p><strong>Cache:</strong> This is the expensive step. Changing log scale, fit model, sample type, or Used checkboxes does not reread files.</p>
+              </div>
+              <div class="help-item">
+                <h4>Plot / Fit CMC</h4>
+                <p><strong>Purpose:</strong> Aggregates Used droplets by file/concentration, draws σ vs concentration, and optionally fits a transition model.</p>
+                <p><strong>Partial data:</strong> Files with no Used droplets are skipped with a warning; valid concentrations still plot.</p>
+              </div>
+            </section>
+
+            <section class="help-section">
+              <h3>Inputs</h3>
+              <div class="help-item">
+                <h4>Files and Concentration</h4>
+                <p><strong>Add Files:</strong> Adds files in batches. FAMAS multi-experiment CSV, CSV, XLSX, and XLS are supported when runtime packages are available.</p>
+                <p><strong>Concentration:</strong> The table value is used for plotting/fitting. Click the Concentration header to sort.</p>
+              </div>
+              <div class="help-item">
+                <h4>Sample Type</h4>
+                <p><strong>single:</strong> Labels the transition as CMC.</p>
+                <p><strong>mixture / WSOM / unknown:</strong> Uses apparent CMC/CAC or transition concentration wording to avoid over-interpreting complex samples.</p>
+              </div>
+              <div class="help-item">
+                <h4>Optional Metadata</h4>
+                <p><strong>Temperature:</strong> Stored with the export for provenance; it is not forced into the model.</p>
+                <p><strong>Density Override:</strong> Overrides source d(g/cm^3) when you need one density difference for the review.</p>
+              </div>
+            </section>
+
+            <section class="help-section">
+              <h3>Equilibrium and Plateau</h3>
+              <div class="help-item">
+                <h4>manual window</h4>
+                <p><strong>Principle:</strong> Uses your Time Min/Time Max for every droplet.</p>
+                <p><strong>Use when:</strong> You already know the stable region or want behavior close to the older time-window workflow.</p>
+              </div>
+              <div class="help-item">
+                <h4>auto plateau</h4>
+                <p><strong>Principle:</strong> Searches later windows, preferring low slope, low noise, sufficient points, and acceptable full-droplet evaporation.</p>
+                <p><strong>Use when:</strong> Droplets equilibrate at slightly different times or files have many repeats.</p>
+              </div>
+              <div class="help-item">
+                <h4>Advanced Criteria</h4>
+                <p><strong>Min Plateau Window:</strong> Minimum window length used for σeq.</p>
+                <p><strong>Max |Slope|:</strong> Drift limit in mN/m/min. Higher drift is flagged DRIFT.</p>
+                <p><strong>Max Plateau SD:</strong> Noise limit within the selected plateau. Higher SD is flagged NOISE.</p>
+                <p><strong>Max Full Evaporation Rate:</strong> Full-droplet volume loss per minute. High rate is flagged EVAP and excluded by default.</p>
+                <p><strong>Aggregation Method:</strong> Mean is standard; median is more robust when accepted droplets are uneven.</p>
+              </div>
+              <div class="help-item">
+                <h4>Performance Preset</h4>
+                <p><strong>Fast:</strong> plateau stride 10000 ms, bootstrap 0, fit curve up to 150 points. Best for exploration.</p>
+                <p><strong>Standard:</strong> plateau stride 5000 ms, bootstrap 100, fit curve up to 250 points. Default balance.</p>
+                <p><strong>Full:</strong> plateau stride 1000 ms, bootstrap 300, fit curve up to 400 points. Use for final checks; slower on large batches.</p>
+              </div>
+            </section>
+
+            <section class="help-section">
+              <h3>Fit Models</h3>
+              <div class="help-item">
+                <h4>none</h4>
+                <p><strong>Use when:</strong> You only want concentration-level σ points and droplet QC, or the series is too sparse for fitting.</p>
+              </div>
+              <div class="help-item">
+                <h4>surface tension CMC</h4>
+                <p><strong>Principle:</strong> Fits a pre-CMC decreasing line and a high-concentration plateau; CMC is their intersection.</p>
+                <p><strong>Details:</strong> Positive concentrations enter log10(C) fitting. Very low baseline points may be excluded and recorded in diagnostics.</p>
+                <p><strong>Default:</strong> Recommended for surface tension CMC/CAC work.</p>
+              </div>
+              <div class="help-item">
+                <h4>trend breakpoint</h4>
+                <p><strong>Principle:</strong> Finds a continuous segmented-regression breakpoint.</p>
+                <p><strong>Caution:</strong> Useful as a trend diagnostic, but not recommended as the main σ-CMC model because it can find low-concentration onset.</p>
+              </div>
+              <div class="help-item">
+                <h4>flat plateau</h4>
+                <p><strong>Principle:</strong> Fits a left linear segment and a right constant plateau.</p>
+                <p><strong>Use when:</strong> You want a stricter plateau assumption and have enough points on both sides.</p>
+              </div>
+            </section>
+
+            <section class="help-section">
+              <h3>QC Flags</h3>
+              <div class="help-item">
+                <h4>Default excluded flags</h4>
+                <p><strong>NO_DATA:</strong> No usable σ values.</p>
+                <p><strong>NO_PLATEAU:</strong> No valid equilibrium window.</p>
+                <p><strong>DRIFT:</strong> Plateau slope exceeds the drift threshold.</p>
+                <p><strong>NOISE:</strong> Plateau SD exceeds the noise threshold.</p>
+                <p><strong>EVAP:</strong> Full-droplet evaporation loss/rate exceeds the threshold.</p>
+                <p><strong>OUTLIER:</strong> Droplet is an outlier within its concentration group.</p>
+              </div>
+              <div class="help-item">
+                <h4>Warning-only flags</h4>
+                <p><strong>NO_VOLUME:</strong> No V(uL) data; σ can still be used, but evaporation QC is unavailable.</p>
+                <p><strong>LOW_N:</strong> Few plateau points; inspect before trusting σeq.</p>
+              </div>
+              <div class="help-item">
+                <h4>Used checkbox</h4>
+                <p><strong>Meaning:</strong> Controls whether that droplet contributes to concentration-level aggregation.</p>
+                <p><strong>Override:</strong> Manual changes are preserved in JSON export with provenance; flags remain visible.</p>
+              </div>
+            </section>
+
+            <section class="help-section">
+              <h3>Outputs</h3>
+              <div class="help-item">
+                <h4>Plot and Export</h4>
+                <p><strong>Plot:</strong> Shows σ points, error bars, warning styling, fit segments, and CMC/CAC marker when available.</p>
+                <p><strong>Export JSON:</strong> Includes review payload, plot payload, Used overrides, metadata, droplets, QC metrics, fit diagnostics, and options.</p>
+                <p><strong>Publication Plot:</strong> Sends the current plot payload only; it does not recompute review or fit.</p>
+              </div>
+            </section>
+          </div>
+        </dialog>
       </section>
 
       <section class="panel" data-tab-panel="publication" hidden>

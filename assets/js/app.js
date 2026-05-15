@@ -69,6 +69,9 @@
     cmcEmpty: document.querySelector("[data-cmc-empty]"),
     cmcDropletEmpty: document.querySelector("[data-cmc-droplet-empty]"),
     cmcDropletReview: document.querySelector("[data-cmc-droplet-review]"),
+    cmcHelpButton: document.querySelector("#cmc-help-button"),
+    cmcHelpDialog: document.querySelector("#cmc-help-dialog"),
+    cmcHelpClose: document.querySelector("#cmc-help-close"),
   };
 
   let timeSeriesController = null;
@@ -449,6 +452,22 @@
     const isAuto = dom.cmcEquilibriumMode.value === "auto";
     dom.cmcManualFields.hidden = isAuto;
     dom.cmcAutoFields.hidden = !isAuto;
+  }
+
+  function openCmcHelp() {
+    if (typeof dom.cmcHelpDialog.showModal === "function") {
+      dom.cmcHelpDialog.showModal();
+    } else {
+      dom.cmcHelpDialog.setAttribute("open", "open");
+    }
+  }
+
+  function closeCmcHelp() {
+    if (typeof dom.cmcHelpDialog.close === "function") {
+      dom.cmcHelpDialog.close();
+    } else {
+      dom.cmcHelpDialog.removeAttribute("open");
+    }
   }
 
   function renderCmcSummary(payload) {
@@ -1016,6 +1035,8 @@
     dom.cmcReview.addEventListener("click", withUiLock(() => reviewCmcDroplets({ force: true })));
     dom.cmcPlotFit.addEventListener("click", withUiLock(plotCmcFromReview));
     dom.cmcClearFiles.addEventListener("click", clearCmcFiles);
+    dom.cmcHelpButton.addEventListener("click", openCmcHelp);
+    dom.cmcHelpClose.addEventListener("click", closeCmcHelp);
     dom.runtimeRetry.addEventListener("click", () => {
       retryRuntime();
     });

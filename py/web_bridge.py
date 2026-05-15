@@ -1,3 +1,4 @@
+import json
 import math
 import os
 from typing import Any
@@ -848,6 +849,20 @@ def build_cmc_plot_payload_from_review(
             "aggregationMethod": qc_options["aggregationMethod"],
         },
     }
+
+
+def build_cmc_plot_payload_from_review_json(
+    review_payload_json: str,
+    plot_options_json: str | None = None,
+) -> dict[str, Any]:
+    try:
+        review_payload = json.loads(review_payload_json)
+        plot_options = json.loads(plot_options_json or "{}")
+    except json.JSONDecodeError as exc:
+        raise DataProcessingError("Could not decode cached CMC review payload for plotting.") from exc
+    if not isinstance(review_payload, dict) or not isinstance(plot_options, dict):
+        raise DataProcessingError("Cached CMC plotting inputs must be JSON objects.")
+    return build_cmc_plot_payload_from_review(review_payload, plot_options)
 
 
 def analyze_cmc_files(

@@ -1,4 +1,5 @@
 import os
+import json
 import sys
 import tempfile
 import time
@@ -28,6 +29,7 @@ from web_bridge import (  # noqa: E402
     analyze_plot_file,
     analyze_plot_noise,
     build_cmc_plot_payload_from_review,
+    build_cmc_plot_payload_from_review_json,
     analyze_time_series_quality,
     extract_plot_trend,
     infer_concentration,
@@ -1060,6 +1062,32 @@ class WebBridgeTests(unittest.TestCase):
         self.assertEqual(payload["summary"]["skippedFileCount"], 1)
         self.assertEqual(payload["skippedFiles"][0]["filename"], "bad.csv")
         self.assertEqual(payload["warnings"][0]["code"], "FILES_SKIPPED_NO_USED_DROPLETS")
+
+    def test_build_cmc_plot_payload_from_review_json(self):
+        review = {
+            "files": [
+                {
+                    "filename": "one.csv",
+                    "path": "/tmp/one.csv",
+                    "metadata": {},
+                    "droplets": [
+                        {"dropletIndex": 1, "qc": {"gammaEq": 71.0, "usedForAggregate": True, "flags": []}},
+                    ],
+                },
+            ],
+            "options": {"fitModel": "none", "aggregationMethod": "mean"},
+            "summary": {"timeWindow": [0, 10000], "plateauMode": "manual"},
+        }
+
+        payload = build_cmc_plot_payload_from_review_json(json.dumps(review), json.dumps({
+            "concentrations": [
+                {"filename": "one.csv", "path": "/tmp/one.csv", "concentration": "1"},
+            ],
+            "useLog": False,
+        }))
+
+        self.assertEqual(payload["rows"][0]["filename"], "one.csv")
+        self.assertEqual(payload["rows"][0]["sigmaValue"], 71.0)
 
     def test_extract_plot_trend(self):
         content = "Time (ms),I.T.(mN/m).1\n0,0\n1,1\n2,2\n3,3\n4,4\n5,5\n"

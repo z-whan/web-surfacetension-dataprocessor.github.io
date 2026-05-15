@@ -18,6 +18,9 @@
       reviewDirty: true,
       plotDirty: true,
       fileSort: { key: null, direction: "asc" },
+      autoPlotTimer: null,
+      plotInProgress: false,
+      pendingAutoPlot: false,
     },
   };
 
@@ -178,13 +181,23 @@
     domUtils.replaceChildren(container, chips.length ? chips : [domUtils.el("span", { className: "table-subtle", text: "—" })]);
   }
 
+  function clearCmcAutoPlotTimer() {
+    if (state.cmc.autoPlotTimer) {
+      clearTimeout(state.cmc.autoPlotTimer);
+      state.cmc.autoPlotTimer = null;
+    }
+  }
+
   function clearCmcResults(options) {
     const opts = options || {};
+    clearCmcAutoPlotTimer();
     state.cmc.reviewPayload = null;
     state.cmc.plotPayload = null;
     state.cmc.reviewCacheKey = null;
     state.cmc.reviewDirty = true;
     state.cmc.plotDirty = true;
+    state.cmc.plotInProgress = false;
+    state.cmc.pendingAutoPlot = false;
     if (opts.clearOverrides) {
       state.cmc.usedOverrides = {};
     }
@@ -201,7 +214,6 @@
 
   function markCmcPlotDirty() {
     state.cmc.plotDirty = true;
-    state.cmc.plotPayload = null;
     setCmcOutputsEnabled(false);
   }
 
@@ -285,8 +297,40 @@
     );
   }
 
+  function compactReviewPayloadForPlot(reviewPayload) {
+    if (!reviewPayload) {
+      return null;
+    }
+    return {
+      files: (reviewPayload.files || []).map((file) => ({
+        filename: file.filename,
+        path: file.path,
+        concentration: file.concentration,
+        metadata: file.metadata || {},
+        detectedDropletCount: file.detectedDropletCount,
+        acceptedDropletCount: file.acceptedDropletCount,
+        warningCount: file.warningCount,
+        droplets: (file.droplets || []).map((droplet) => ({
+          dropletIndex: droplet.dropletIndex,
+          sourceColumn: droplet.sourceColumn,
+          pointCount: droplet.pointCount,
+          timeMin: droplet.timeMin,
+          timeMax: droplet.timeMax,
+          hasVolume: droplet.hasVolume,
+          densityDeltaGPerCm3: droplet.densityDeltaGPerCm3,
+          qc: droplet.qc || {},
+          usedForAggregate: droplet.usedForAggregate,
+          excludeReason: droplet.excludeReason,
+          stableDropletId: droplet.stableDropletId,
+        })),
+      })),
+      options: reviewPayload.options || {},
+      summary: reviewPayload.summary || {},
+    };
+  }
+
   function findReviewFileForRow(row) {
-    const payload = state.cmc.plotPayload || applyCurrentUsedOverrides();
+    const payload = applyCurrentUsedOverrides() || state.cmc.plotPayload;
     const files = payload && Array.isArray(payload.files) ? payload.files : [];
     return files.find((file) => file.filename === row.filename) || null;
   }
@@ -346,6 +390,24 @@
     return state.cmc.plotPayload || applyCurrentUsedOverrides();
   }
 
+  function cmcReviewSummaryText(file, rowIndex) {
+    const accepted = (file.droplets || []).filter((droplet) => effectiveUsedForDroplet(rowIndex, droplet)).length;
+    return file.filename + " · " + accepted + " / " + (file.droplets || []).length + " droplets accepted";
+  }
+
+  function updateCmcReviewFileSummary(details) {
+    if (!details) {
+      return;
+    }
+    const rowIndex = Number(details.dataset.cmcReviewRowIndex);
+    const payload = applyCurrentUsedOverrides();
+    const file = payload && payload.files ? payload.files[rowIndex] : null;
+    const summary = details.querySelector("summary");
+    if (file && summary) {
+      summary.textContent = cmcReviewSummaryText(file, rowIndex);
+    }
+  }
+
   function plotWarningText(payload) {
     const skipped = payload && Array.isArray(payload.skippedFiles) ? payload.skippedFiles : [];
     if (!skipped.length) {
@@ -369,7 +431,18 @@
     markCmcPlotDirty();
     renderCmcTable();
     renderCmcDropletReview(applyCurrentUsedOverrides());
-    rebuildCmcPlotIfReady();
+    scheduleCmcPlotRebuild();
+  }
+
+  function scheduleCmcPlotRebuild() {
+    if (!state.cmc.plotPayload) {
+      return;
+    }
+    clearCmcAutoPlotTimer();
+    state.cmc.autoPlotTimer = setTimeout(() => {
+      state.cmc.autoPlotTimer = null;
+      rebuildCmcPlotIfReady();
+    }, 120);
   }
 
   function syncCmcModeFields() {
@@ -469,12 +542,14 @@
       const hasOpenState = openByKey.has(reviewFileKey);
       const details = domUtils.el("details", {
         className: "cmc-review-file",
-        attrs: { "data-cmc-review-file-key": reviewFileKey },
+        attrs: {
+          "data-cmc-review-file-key": reviewFileKey,
+          "data-cmc-review-row-index": rowIndex,
+        },
         props: { open: hasOpenState ? openByKey.get(reviewFileKey) : displayFileIndex === 0 },
       });
-      const accepted = (file.droplets || []).filter((droplet) => effectiveUsedForDroplet(rowIndex, droplet)).length;
       details.appendChild(domUtils.el("summary", {
-        text: file.filename + " · " + accepted + " / " + (file.droplets || []).length + " droplets accepted",
+        text: cmcReviewSummaryText(file, rowIndex),
       }));
       const table = domUtils.el("table", { className: "compact-table" });
       const thead = domUtils.el("thead", {}, [
@@ -636,50 +711,67 @@
   }
 
   async function plotCmcFromReview(options) {
+    const plotOptions = options || {};
+    if (state.cmc.plotInProgress) {
+      state.cmc.pendingAutoPlot = true;
+      return state.cmc.plotPayload;
+    }
+
     if (!state.cmc.rows.length) {
       throw new Error("Please add at least one file for CMC analysis.");
     }
 
     if (!state.cmc.reviewPayload || state.cmc.reviewDirty) {
-      if (!options || options.silentReview !== true) {
+      if (plotOptions.silentReview !== true) {
         setStatus("Review is stale; reviewing droplet QC first...");
       }
       await reviewCmcDroplets();
     }
 
-    setStatus("Plotting/Fitting CMC from cached QC...");
-    await allowStatusPaint();
-    const reviewForPlot = applyCurrentUsedOverrides();
-    const plotPayload = await pyodideClient.callBridge(
-      "build_cmc_plot_payload_from_review",
-      reviewForPlot,
-      getCmcPlotOptions()
-    );
+    state.cmc.plotInProgress = true;
+    try {
+      setStatus("Plotting/Fitting CMC from cached QC...");
+      await allowStatusPaint();
+      const reviewForPlot = compactReviewPayloadForPlot(applyCurrentUsedOverrides());
+      const plotPayload = await pyodideClient.callBridge(
+        "build_cmc_plot_payload_from_review_json",
+        JSON.stringify(reviewForPlot),
+        JSON.stringify(getCmcPlotOptions())
+      );
 
-    recordCmcPlotPayload(plotPayload);
-    await charts.renderCmcPlot(dom.cmcCanvas, plotPayload);
-    renderCmcSummary(plotPayload);
-    renderCmcTable();
-    renderCmcDropletReview(plotPayload);
-    const warningText = plotWarningText(plotPayload);
-    if (warningText) {
-      showWarning(warningText);
+      recordCmcPlotPayload(plotPayload);
+      await charts.renderCmcPlot(dom.cmcCanvas, plotPayload);
+      renderCmcSummary(plotPayload);
+      renderCmcTable();
+      if (plotOptions.renderReview !== false) {
+        renderCmcDropletReview(applyCurrentUsedOverrides());
+      }
+      const warningText = plotWarningText(plotPayload);
+      if (warningText) {
+        showWarning(warningText);
+      }
+      setStatus(
+        warningText
+          ? "Plotted/Fitted CMC from cached QC; some files were skipped."
+          : "Plotted/Fitted CMC from cached droplet QC."
+      );
+      return plotPayload;
+    } finally {
+      state.cmc.plotInProgress = false;
+      if (state.cmc.pendingAutoPlot) {
+        state.cmc.pendingAutoPlot = false;
+        scheduleCmcPlotRebuild();
+      }
     }
-    setStatus(
-      warningText
-        ? "Plotted/Fitted CMC from cached QC; some files were skipped."
-        : "Plotted/Fitted CMC from cached droplet QC."
-    );
-    return plotPayload;
   }
 
   async function rebuildCmcPlotIfReady() {
-    if (!state.cmc.reviewPayload || state.cmc.reviewDirty) {
+    if (!state.cmc.plotPayload || !state.cmc.reviewPayload || state.cmc.reviewDirty) {
       return;
     }
     try {
       clearError();
-      await plotCmcFromReview({ silentReview: true });
+      await plotCmcFromReview({ silentReview: true, renderReview: false });
     } catch (error) {
       showError(normalizeUiError(error));
     }
@@ -805,7 +897,7 @@
       if (Number.isInteger(index) && state.cmc.rows[index]) {
         state.cmc.rows[index].concentration = input.value.trim();
         markCmcPlotDirty();
-        rebuildCmcPlotIfReady();
+        scheduleCmcPlotRebuild();
       }
     });
 
@@ -836,8 +928,8 @@
       }
       state.cmc.usedOverrides[checkbox.dataset.cmcUsedKey] = checkbox.checked;
       markCmcPlotDirty();
-      renderCmcDropletReview(applyCurrentUsedOverrides());
-      rebuildCmcPlotIfReady();
+      updateCmcReviewFileSummary(checkbox.closest("details"));
+      scheduleCmcPlotRebuild();
     });
   }
 
@@ -915,7 +1007,7 @@
     ].forEach((element) => {
       element.addEventListener("change", () => {
         markCmcPlotDirty();
-        rebuildCmcPlotIfReady();
+        scheduleCmcPlotRebuild();
       });
       element.addEventListener("input", () => {
         markCmcPlotDirty();

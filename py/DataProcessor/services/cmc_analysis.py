@@ -43,7 +43,8 @@ DEFAULT_CMC_QC_OPTIONS: dict[str, Any] = {
     "minPointsPerSegment": 2,
     "minPrePoints": 3,
     "minPostPoints": 3,
-    "nBootstrap": 80,
+    "nBootstrap": 100,
+    "fitSeriesMaxPoints": 250,
 }
 
 FIT_NOT_ENOUGH_CONCENTRATIONS = "NOT_ENOUGH_CONCENTRATIONS"
@@ -212,6 +213,11 @@ def normalize_cmc_qc_options(options: dict[str, Any] | None = None) -> dict[str,
         normalized["nBootstrap"] = max(0, int(normalized["nBootstrap"]))
     except (TypeError, ValueError):
         normalized["nBootstrap"] = int(DEFAULT_CMC_QC_OPTIONS["nBootstrap"])
+
+    try:
+        normalized["fitSeriesMaxPoints"] = max(20, int(normalized["fitSeriesMaxPoints"]))
+    except (TypeError, ValueError):
+        normalized["fitSeriesMaxPoints"] = int(DEFAULT_CMC_QC_OPTIONS["fitSeriesMaxPoints"])
 
     return normalized
 
@@ -1335,15 +1341,21 @@ def _bootstrap_surface_cmc_interval(
         return None, None, f"Bootstrap failed: {exc}"
 
 
-def _surface_fit_series_payload(result: dict[str, Any], *, plot_use_log: bool) -> list[dict[str, Any]]:
+def _surface_fit_series_payload(
+    result: dict[str, Any],
+    *,
+    plot_use_log: bool,
+    max_points: int = 250,
+) -> list[dict[str, Any]]:
     x_sorted = result["xSorted"]
     left_start = int(result["leftStart"])
     split = int(result["split"])
     x0 = float(result["x0"])
     pre_start = float(x_sorted[left_start])
     post_end = float(x_sorted[-1])
-    pre_grid = np.linspace(pre_start, x0, 80)
-    post_grid = np.linspace(x0, post_end, 80)
+    points_per_segment = max(20, int(max_points) // 2)
+    pre_grid = np.linspace(pre_start, x0, points_per_segment)
+    post_grid = np.linspace(x0, post_end, points_per_segment)
     pre_y = float(result["preIntercept"]) + float(result["preSlope"]) * pre_grid
     post_y = np.full_like(post_grid, float(result["plateauSigma"]), dtype=float)
     return [
@@ -1405,9 +1417,14 @@ def _surface_fit_warnings(
         ))
 
 
-def _fit_series_payload(result: dict[str, Any], *, plot_use_log: bool) -> list[dict[str, Any]]:
+def _fit_series_payload(
+    result: dict[str, Any],
+    *,
+    plot_use_log: bool,
+    max_points: int = 250,
+) -> list[dict[str, Any]]:
     x_sorted = result["xSorted"]
-    x_grid = np.linspace(float(x_sorted.min()), float(x_sorted.max()), 160)
+    x_grid = np.linspace(float(x_sorted.min()), float(x_sorted.max()), max(20, int(max_points)))
     y_grid = result["predict"](result["params"], x_grid, float(result["x0"]))
     return [
         {
@@ -1478,6 +1495,7 @@ def fit_cmc_curve(points: Sequence[dict[str, Any]], options: dict[str, Any] | No
     min_pre_points = int(fit_options["minPrePoints"])
     min_post_points = int(fit_options["minPostPoints"])
     n_bootstrap = int(fit_options["nBootstrap"])
+    fit_series_max_points = int(fit_options["fitSeriesMaxPoints"])
     plot_use_log = bool((options or {}).get("plotUseLog", False))
     label = _sample_transition_label(sample_type)
 
@@ -1566,7 +1584,11 @@ def fit_cmc_curve(points: Sequence[dict[str, Any]], options: dict[str, Any] | No
             used_indexes[int(order[idx])]
             for idx in range(left_start)
         ]
-        fit_series = _surface_fit_series_payload(result, plot_use_log=plot_use_log)
+        fit_series = _surface_fit_series_payload(
+            result,
+            plot_use_log=plot_use_log,
+            max_points=fit_series_max_points,
+        )
         sigma_at_cmc = float(result["sigmaAtCmc"])
         cmc = float(result["cmc"])
         x0 = float(result["x0"])
@@ -1686,8 +1708,16 @@ def fit_cmc_curve(points: Sequence[dict[str, Any]], options: dict[str, Any] | No
             "sampleType": sample_type,
             "transitionLabel": label,
         },
-        "fitSegments": _fit_series_payload(result, plot_use_log=plot_use_log),
-        "fitSeries": _fit_series_payload(result, plot_use_log=plot_use_log),
+        "fitSegments": _fit_series_payload(
+            result,
+            plot_use_log=plot_use_log,
+            max_points=fit_series_max_points,
+        ),
+        "fitSeries": _fit_series_payload(
+            result,
+            plot_use_log=plot_use_log,
+            max_points=fit_series_max_points,
+        ),
         "cmcMarker": {
             "x": x0 if plot_use_log else cmc,
             "y": gamma_at_cmc,

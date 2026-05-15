@@ -656,7 +656,7 @@ def _review_concentration_map(plot_options: dict[str, Any]) -> dict[str, float]:
 def _concentration_for_file(file_payload: dict[str, Any], index: int, concentration_map: dict[str, float]) -> float:
     path = str(file_payload.get("path", "")).strip()
     filename = str(file_payload.get("filename", "")).strip()
-    for key in (f"path:{path}", f"filename:{filename}", f"index:{index}"):
+    for key in (f"path:{path}", f"index:{index}", f"filename:{filename}"):
         if key in concentration_map:
             return concentration_map[key]
     value = file_payload.get("concentration")

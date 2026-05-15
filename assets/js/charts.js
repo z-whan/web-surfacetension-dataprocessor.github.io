@@ -320,7 +320,7 @@
         (point) =>
           point.filename + "<br>C=" + point.concentration + "<br>Droplets=" + point.dropletCount
       ),
-      hovertemplate: "%{text}<br>γ=%{y:.4f}<extra></extra>",
+      hovertemplate: "%{text}<br>σ=%{y:.4f}<extra></extra>",
       marker: {
         size: 8,
         color: payload.points.map((point) => Number(point.warningCount) > 0 ? "#b56a2a" : "#2f5d8a"),
@@ -340,15 +340,18 @@
     traces.push(trace);
 
     const fit = payload.fit || null;
-    if (fit && Array.isArray(fit.fitSeries) && fit.fitSeries.length) {
-      fit.fitSeries.forEach((series, index) => {
+    const fitSegments = fit && Array.isArray(fit.fitSegments) && fit.fitSegments.length
+      ? fit.fitSegments
+      : (fit && Array.isArray(fit.fitSeries) ? fit.fitSeries : []);
+    if (fitSegments.length) {
+      fitSegments.forEach((series, index) => {
         traces.push({
           type: "scatter",
           mode: "lines",
           name: series.name || "CMC fit",
           x: series.x || [],
           y: series.y || [],
-          hovertemplate: "%{x}, %{y:.4f}<extra></extra>",
+          hovertemplate: "%{x}, σ=%{y:.4f}<extra></extra>",
           line: {
             width: 2,
             color: PALETTE[(index + 2) % PALETTE.length],
@@ -369,7 +372,7 @@
           (fit.cmcMarker.label || "CMC") +
           "<br>C=" +
           (fit.cmc == null ? "n/a" : Number(fit.cmc).toPrecision(4)) +
-          "<br>γ=%{y:.4f}<extra></extra>",
+          "<br>σ=%{y:.4f}<extra></extra>",
         marker: {
           size: 11,
           color: "#3c7a5b",
@@ -381,7 +384,7 @@
 
     const layout = baseLayout({
       xLabel: payload.xLabel,
-      yLabel: "Surface tension γ (mN/m)",
+      yLabel: "Surface tension σ (mN/m)",
       title: "CMC Curve",
       xScale: "linear",
       yScale: "linear",

@@ -65,6 +65,12 @@ loss/rate while plateau-window volume loss remains available for review.
 concentrations and plot options into rows, points, σ aliases, and fit overlays
 without rereading files or recomputing droplet QC.
 
+The browser workflow mirrors that split. `assets/js/app.js` keeps a cached
+`reviewPayload` for expensive file reading and plateau detection, then rebuilds
+the lighter `plotPayload` when concentration, log scale, fit model, sample type,
+or manual droplet Used overrides change. File identity plus QC options form the
+review cache key; plot-only settings must not invalidate droplet review.
+
 ## Publication Plot Styling
 
 `assets/js/publication-plot.js` receives copied Plotly figures from analysis

@@ -5,12 +5,18 @@
   const downloads = window.SurfaceLabDownloads;
   const sessionManager = window.SurfaceLabSessionManager;
   const domUtils = window.SurfaceLabDomUtils;
+  const cmcWorkflow = window.SurfaceLabCmcWorkflow;
 
   const state = {
     runtimeReady: false,
     cmc: {
       rows: [],
-      payload: null,
+      reviewPayload: null,
+      plotPayload: null,
+      usedOverrides: {},
+      reviewCacheKey: null,
+      reviewDirty: true,
+      plotDirty: true,
     },
   };
 
@@ -41,11 +47,14 @@
     cmcMaxSlope: document.querySelector("#cmc-max-slope"),
     cmcMaxSd: document.querySelector("#cmc-max-sd"),
     cmcMaxVolumeLoss: document.querySelector("#cmc-max-volume-loss"),
+    cmcPerformancePreset: document.querySelector("#cmc-performance-preset"),
     cmcAggregationMethod: document.querySelector("#cmc-aggregation-method"),
     cmcFitModel: document.querySelector("#cmc-fit-model"),
     cmcTemperature: document.querySelector("#cmc-temperature"),
     cmcDensityOverride: document.querySelector("#cmc-density-override"),
-    cmcAnalyze: document.querySelector("#cmc-run"),
+    cmcReview: document.querySelector("#cmc-review"),
+    cmcPlotFit: document.querySelector("#cmc-plot-fit"),
+    cmcClearFiles: document.querySelector("#cmc-clear-files"),
     cmcExport: document.querySelector("#cmc-export"),
     cmcExportSvg: document.querySelector("#cmc-export-svg"),
     cmcExportJson: document.querySelector("#cmc-export-json"),
@@ -144,36 +153,185 @@
 
   function appendMetadataChips(container, metadata) {
     const meta = metadata || {};
+    const repeats = meta.configuredExperimentSlotCount && meta.actualRepeatCount != null
+      ? meta.actualRepeatCount + "/" + meta.configuredExperimentSlotCount
+      : meta.repeatCount;
     const chips = [
-      metadataChip("density", numericText(meta.densityDeltaGPerCm3, 5)),
       metadataChip("method", meta.analysisMethod),
+      metadataChip("d", numericText(meta.densityDeltaGPerCm3, 5)),
       metadataChip("interval", meta.measurementIntervalMs == null ? null : numericText(meta.measurementIntervalMs, 2) + " ms"),
-      metadataChip("repeat", meta.repeatCount),
+      metadataChip("count", meta.measurementCount),
+      metadataChip("repeats", repeats),
     ].filter(Boolean);
     domUtils.replaceChildren(container, chips.length ? chips : [domUtils.el("span", { className: "table-subtle", text: "—" })]);
   }
 
-  function getCmcOptions() {
+  function clearCmcResults(options) {
+    const opts = options || {};
+    state.cmc.reviewPayload = null;
+    state.cmc.plotPayload = null;
+    state.cmc.reviewCacheKey = null;
+    state.cmc.reviewDirty = true;
+    state.cmc.plotDirty = true;
+    if (opts.clearOverrides) {
+      state.cmc.usedOverrides = {};
+    }
+    setCmcOutputsEnabled(false);
+    renderCmcSummary(null);
+    renderCmcDropletReview(state.cmc.reviewPayload);
+    charts.clearPlot(dom.cmcCanvas);
+  }
+
+  function markCmcReviewDirty() {
+    clearCmcResults({ clearOverrides: true });
+    renderCmcTable();
+  }
+
+  function markCmcPlotDirty() {
+    state.cmc.plotDirty = true;
+    state.cmc.plotPayload = null;
+    setCmcOutputsEnabled(false);
+  }
+
+  function getCmcPresetOptions() {
+    return cmcWorkflow.presetOptions(dom.cmcPerformancePreset.value);
+  }
+
+  function getCmcReviewOptions() {
+    const preset = getCmcPresetOptions();
     const options = {
-      sampleType: dom.cmcSampleType.value,
       plateauMode: dom.cmcEquilibriumMode.value,
-      fitModel: dom.cmcFitModel.value,
       minPlateauWindowMs: dom.cmcMinPlateauWindow.value,
+      plateauSearchStrideMs: preset.plateauSearchStrideMs,
       maxAbsSlopeMnMPerMin: dom.cmcMaxSlope.value,
       maxPlateauSdMnM: dom.cmcMaxSd.value,
       maxVolumeLossPct: dom.cmcMaxVolumeLoss.value,
-      aggregationMethod: dom.cmcAggregationMethod.value,
+      maxEvaporationRatePctPerMin: "0.5",
     };
-
-    const temperatureText = dom.cmcTemperature.value.trim();
-    if (temperatureText) {
-      options.temperatureC = temperatureText;
-    }
     const densityText = dom.cmcDensityOverride.value.trim();
     if (densityText) {
       options.densityOverrideGPerCm3 = densityText;
     }
+    if (options.plateauMode === "manual") {
+      options.tMinText = dom.cmcTimeMin.value.trim();
+      options.tMaxText = dom.cmcTimeMax.value.trim();
+    }
     return options;
+  }
+
+  function getCmcPlotOptions() {
+    const preset = getCmcPresetOptions();
+    const options = {
+      sampleType: dom.cmcSampleType.value,
+      fitModel: dom.cmcFitModel.value,
+      aggregationMethod: dom.cmcAggregationMethod.value,
+      useLog: dom.cmcUseLog.checked,
+      cUnit: dom.cmcUnit.value,
+      nBootstrap: preset.nBootstrap,
+      fitSeriesMaxPoints: preset.fitSeriesMaxPoints,
+      concentrations: state.cmc.rows.map((row) => ({
+        filename: row.filename,
+        concentration: row.concentration,
+      })),
+    };
+    const temperatureText = dom.cmcTemperature.value.trim();
+    if (temperatureText) {
+      options.temperatureC = temperatureText;
+    }
+    return options;
+  }
+
+  function getCmcOptions() {
+    return {
+      ...getCmcReviewOptions(),
+      ...getCmcPlotOptions(),
+    };
+  }
+
+  function getCmcReviewTimeRange(reviewOptions) {
+    if (reviewOptions.plateauMode === "manual") {
+      return {
+        tMinText: reviewOptions.tMinText || dom.cmcTimeMin.value,
+        tMaxText: reviewOptions.tMaxText || dom.cmcTimeMax.value,
+      };
+    }
+    return { tMinText: "0", tMaxText: "999999999" };
+  }
+
+  function currentReviewCacheKey(reviewOptions) {
+    return cmcWorkflow.reviewCacheKey(state.cmc.rows, reviewOptions || getCmcReviewOptions());
+  }
+
+  function applyCurrentUsedOverrides() {
+    if (!state.cmc.reviewPayload) {
+      return null;
+    }
+    return cmcWorkflow.applyUsedOverrides(
+      state.cmc.reviewPayload,
+      state.cmc.rows,
+      state.cmc.usedOverrides
+    );
+  }
+
+  function findReviewFileForRow(row) {
+    const payload = state.cmc.plotPayload || applyCurrentUsedOverrides();
+    const files = payload && Array.isArray(payload.files) ? payload.files : [];
+    return files.find((file) => file.filename === row.filename) || null;
+  }
+
+  function setCmcOutputsEnabled(enabled) {
+    dom.cmcExport.disabled = !enabled;
+    dom.cmcExportSvg.disabled = !enabled;
+    dom.cmcExportJson.disabled = !enabled;
+    dom.cmcSendPublication.disabled = !enabled;
+  }
+
+  function setCmcBusy(busy) {
+    [dom.cmcReview, dom.cmcPlotFit, dom.cmcClearFiles].forEach((button) => {
+      if (button) {
+        button.disabled = busy;
+      }
+    });
+  }
+
+  function allowStatusPaint() {
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => {
+        setTimeout(resolve, 0);
+      });
+    });
+  }
+
+  function formatPercent(value, digits) {
+    return value == null ? "—" : numericText(value, digits) + "%";
+  }
+
+  function flagBadge(flag, qc) {
+    return domUtils.el("span", {
+      className: "status-badge warning",
+      text: cmcWorkflow.flagLabel(flag),
+      attrs: {
+        title: cmcWorkflow.flagTitle(flag, qc, getCmcReviewOptions()),
+      },
+    });
+  }
+
+  function effectiveUsedForDroplet(fileIndex, droplet) {
+    const key = cmcWorkflow.dropletKey(state.cmc.rows[fileIndex] || {}, droplet);
+    if (Object.prototype.hasOwnProperty.call(state.cmc.usedOverrides, key)) {
+      return Boolean(state.cmc.usedOverrides[key]);
+    }
+    return Boolean(droplet.qc && droplet.qc.usedForAggregate);
+  }
+
+  function recordCmcPlotPayload(payload) {
+    state.cmc.plotPayload = payload;
+    state.cmc.plotDirty = false;
+    setCmcOutputsEnabled(true);
+  }
+
+  function activeCmcPayloadForDisplay() {
+    return state.cmc.plotPayload || applyCurrentUsedOverrides();
   }
 
   function syncCmcModeFields() {
@@ -188,8 +346,9 @@
       return;
     }
 
-    const start = payload.summary.timeWindow[0];
-    const end = payload.summary.timeWindow[1];
+    const windowValues = payload.summary.timeWindow || [];
+    const start = windowValues[0];
+    const end = windowValues[1];
     const fit = payload.fit || {};
     const marker = fit.cmcMarker || {};
     const label = marker.label || "Transition";
@@ -216,9 +375,7 @@
 
     state.cmc.rows.forEach((row, index) => {
       const tr = document.createElement("tr");
-      const fileResult = state.cmc.payload && state.cmc.payload.files
-        ? state.cmc.payload.files.find((file) => file.filename === row.filename)
-        : null;
+      const fileResult = findReviewFileForRow(row);
       const metadataCell = domUtils.el("td");
       appendMetadataChips(metadataCell, fileResult && fileResult.metadata);
       const concentrationInput = domUtils.el("input", {
@@ -260,12 +417,14 @@
       return;
     }
 
-    files.forEach((file, fileIndex) => {
+    files.forEach((file, displayFileIndex) => {
+      const fileIndex = state.cmc.rows.findIndex((row) => row.filename === file.filename);
+      const rowIndex = fileIndex >= 0 ? fileIndex : displayFileIndex;
       const details = domUtils.el("details", {
         className: "cmc-review-file",
-        props: { open: fileIndex === 0 },
+        props: { open: displayFileIndex === 0 },
       });
-      const accepted = (file.droplets || []).filter((droplet) => droplet.usedForAggregate).length;
+      const accepted = (file.droplets || []).filter((droplet) => effectiveUsedForDroplet(rowIndex, droplet)).length;
       details.appendChild(domUtils.el("summary", {
         text: file.filename + " · " + accepted + " / " + (file.droplets || []).length + " droplets accepted",
       }));
@@ -273,11 +432,12 @@
       const thead = domUtils.el("thead", {}, [
         domUtils.el("tr", {}, [
           "Droplet",
-          "γeq",
+          "σeq",
           "Plateau Window",
           "Slope",
           "Noise",
-          "Volume Loss",
+          "Full Evaporation",
+          "Plateau Evaporation",
           "Flags",
           "Used",
         ].map((label) => domUtils.el("th", { text: label }))),
@@ -286,11 +446,13 @@
       (file.droplets || []).forEach((droplet) => {
         const qc = droplet.qc || {};
         const flags = Array.isArray(qc.flags) ? qc.flags : [];
+        const stableKey = cmcWorkflow.dropletKey(state.cmc.rows[rowIndex] || {}, droplet);
+        const used = effectiveUsedForDroplet(rowIndex, droplet);
         const flagWrap = domUtils.el("div", { className: "chip-list" });
         domUtils.appendChildren(
           flagWrap,
           flags.length
-            ? flags.map((flag) => domUtils.el("span", { className: "status-badge warning", text: flag }))
+            ? flags.map((flag) => flagBadge(flag, qc))
             : [domUtils.el("span", { className: "status-badge ok", text: "OK" })]
         );
         tbody.appendChild(domUtils.el("tr", {}, [
@@ -299,12 +461,19 @@
           domUtils.el("td", { text: numericText(qc.plateauStartMs, 1) + " - " + numericText(qc.plateauEndMs, 1) + " ms" }),
           domUtils.el("td", { text: numericText(qc.slopeMnMPerMin, 4) }),
           domUtils.el("td", { text: numericText(qc.gammaSd, 4) }),
-          domUtils.el("td", { text: qc.volumeLossPct == null ? "—" : numericText(qc.volumeLossPct, 2) + "%" }),
+          domUtils.el("td", { text: formatPercent(qc.fullVolumeLossPct, 2) }),
+          domUtils.el("td", { text: formatPercent(qc.plateauVolumeLossPct, 2) }),
           domUtils.el("td", {}, [flagWrap]),
           domUtils.el("td", {}, [
-            domUtils.el("span", {
-              className: "status-badge " + (qc.usedForAggregate ? "ok" : "muted"),
-              text: qc.usedForAggregate ? "yes" : "no",
+            domUtils.el("input", {
+              attrs: {
+                type: "checkbox",
+                "data-cmc-used-key": stableKey,
+                title: "Include this droplet in concentration-level aggregation",
+              },
+              props: {
+                checked: used,
+              },
             }),
           ]),
         ]));
@@ -319,28 +488,30 @@
   function handleCmcSelection() {
     clearError();
     const files = Array.from(dom.cmcInput.files || []);
-    state.cmc.rows = files.map((file) => ({
-      file,
-      filename: file.name,
-      size: file.size,
-      concentration: inferConcentrationFromFilename(file.name),
-    }));
-    state.cmc.payload = null;
-    dom.cmcExport.disabled = true;
-    dom.cmcExportSvg.disabled = true;
-    dom.cmcExportJson.disabled = true;
-    dom.cmcSendPublication.disabled = true;
+    if (!files.length) {
+      dom.cmcInput.value = "";
+      return;
+    }
+    state.cmc.rows = cmcWorkflow.appendFileRows(
+      state.cmc.rows,
+      files,
+      inferConcentrationFromFilename
+    );
+    dom.cmcInput.value = "";
+    clearCmcResults({ clearOverrides: true });
     renderCmcTable();
-    renderCmcSummary(null);
-    renderCmcDropletReview(null);
-    charts.clearPlot(dom.cmcCanvas);
   }
 
-  async function runCmc() {
-    if (!state.cmc.rows.length) {
-      throw new Error("Please choose at least one file for CMC analysis.");
-    }
+  function clearCmcFiles() {
+    state.cmc.rows = [];
+    state.cmc.usedOverrides = {};
+    dom.cmcInput.value = "";
+    clearCmcResults({ clearOverrides: true });
+    renderCmcTable();
+    setStatus("CMC file list cleared.");
+  }
 
+  async function ensureCmcOptionalPackages() {
     const needsXlsx = state.cmc.rows.some((row) => row.filename.toLowerCase().endsWith(".xlsx"));
     const needsXls = state.cmc.rows.some((row) => row.filename.toLowerCase().endsWith(".xls"));
     if (needsXlsx) {
@@ -351,6 +522,30 @@
       setStatus("Preparing XLS reading support...");
       await pyodideClient.ensureOptionalPackages(config.OPTIONAL_PYTHON_PACKAGES.xls);
     }
+  }
+
+  async function reviewCmcDroplets(options) {
+    if (!state.cmc.rows.length) {
+      throw new Error("Please add at least one file for CMC analysis.");
+    }
+
+    const reviewOptions = getCmcReviewOptions();
+    const cacheKey = currentReviewCacheKey(reviewOptions);
+    if (!options || options.force !== true) {
+      if (
+        state.cmc.reviewPayload &&
+        !state.cmc.reviewDirty &&
+        state.cmc.reviewCacheKey === cacheKey
+      ) {
+        renderCmcTable();
+        renderCmcDropletReview(applyCurrentUsedOverrides());
+        return state.cmc.reviewPayload;
+      }
+    }
+
+    setStatus("Reviewing droplet QC...");
+    await allowStatusPaint();
+    await ensureCmcOptionalPackages();
 
     const stagedRows = [];
     const entries = [];
@@ -362,42 +557,75 @@
         entries.push({
           path: staged.fsPath,
           filename: row.filename,
-          concentration: row.concentration,
         });
       }
 
-      const cmcOptions = getCmcOptions();
-      const timeMinText = cmcOptions.plateauMode === "auto" && !dom.cmcTimeMin.value.trim()
-        ? "0"
-        : dom.cmcTimeMin.value;
-      const timeMaxText = cmcOptions.plateauMode === "auto" && !dom.cmcTimeMax.value.trim()
-        ? "999999999"
-        : dom.cmcTimeMax.value;
-
-      const payload = await pyodideClient.callBridge(
-        "analyze_cmc_files",
+      const timeRange = getCmcReviewTimeRange(reviewOptions);
+      const reviewPayload = await pyodideClient.callBridge(
+        "review_cmc_files",
         entries,
-        timeMinText,
-        timeMaxText,
-        dom.cmcUnit.value,
-        dom.cmcUseLog.checked,
-        cmcOptions
+        timeRange.tMinText,
+        timeRange.tMaxText,
+        reviewOptions
       );
 
-      state.cmc.payload = payload;
-      await charts.renderCmcPlot(dom.cmcCanvas, payload);
-      renderCmcSummary(payload);
+      state.cmc.reviewPayload = reviewPayload;
+      state.cmc.reviewCacheKey = cacheKey;
+      state.cmc.reviewDirty = false;
+      state.cmc.plotDirty = true;
+      state.cmc.plotPayload = null;
+      state.cmc.usedOverrides = {};
+      setCmcOutputsEnabled(false);
       renderCmcTable();
-      renderCmcDropletReview(payload);
-      dom.cmcExport.disabled = false;
-      dom.cmcExportSvg.disabled = false;
-      dom.cmcExportJson.disabled = false;
-      dom.cmcSendPublication.disabled = false;
-      setStatus("Computed CMC stats for " + payload.summary.fileCount + " files locally.");
+      renderCmcDropletReview(reviewPayload);
+      setStatus("Reviewed droplet QC for " + reviewPayload.summary.fileCount + " files.");
+      return reviewPayload;
     } finally {
       stagedRows.forEach((staged) => {
         pyodideClient.removeFsFile(staged.fsPath);
       });
+    }
+  }
+
+  async function plotCmcFromReview(options) {
+    if (!state.cmc.rows.length) {
+      throw new Error("Please add at least one file for CMC analysis.");
+    }
+
+    if (!state.cmc.reviewPayload || state.cmc.reviewDirty) {
+      if (!options || options.silentReview !== true) {
+        setStatus("Review is stale; reviewing droplet QC first...");
+      }
+      await reviewCmcDroplets();
+    }
+
+    setStatus("Plotting/Fitting CMC from cached QC...");
+    await allowStatusPaint();
+    const reviewForPlot = applyCurrentUsedOverrides();
+    const plotPayload = await pyodideClient.callBridge(
+      "build_cmc_plot_payload_from_review",
+      reviewForPlot,
+      getCmcPlotOptions()
+    );
+
+    recordCmcPlotPayload(plotPayload);
+    await charts.renderCmcPlot(dom.cmcCanvas, plotPayload);
+    renderCmcSummary(plotPayload);
+    renderCmcTable();
+    renderCmcDropletReview(plotPayload);
+    setStatus("Plotted/Fitted CMC from cached droplet QC.");
+    return plotPayload;
+  }
+
+  async function rebuildCmcPlotIfReady() {
+    if (!state.cmc.reviewPayload || state.cmc.reviewDirty) {
+      return;
+    }
+    try {
+      clearError();
+      await plotCmcFromReview({ silentReview: true });
+    } catch (error) {
+      showError(normalizeUiError(error));
     }
   }
 
@@ -410,9 +638,12 @@
 
       try {
         clearError();
+        setCmcBusy(true);
         await handler();
       } catch (error) {
         showError(normalizeUiError(error));
+      } finally {
+        setCmcBusy(false);
       }
     };
   }
@@ -517,6 +748,8 @@
       const index = Number(input.dataset.cmcConcentrationIndex);
       if (Number.isInteger(index) && state.cmc.rows[index]) {
         state.cmc.rows[index].concentration = input.value.trim();
+        markCmcPlotDirty();
+        rebuildCmcPlotIfReady();
       }
     });
 
@@ -530,39 +763,49 @@
         return;
       }
       state.cmc.rows.splice(index, 1);
-      state.cmc.payload = null;
-      dom.cmcExport.disabled = true;
-      dom.cmcExportSvg.disabled = true;
-      dom.cmcExportJson.disabled = true;
-      dom.cmcSendPublication.disabled = true;
+      clearCmcResults({ clearOverrides: true });
       renderCmcTable();
-      renderCmcSummary(null);
-      renderCmcDropletReview(null);
-      charts.clearPlot(dom.cmcCanvas);
+    });
+
+    dom.cmcDropletReview.addEventListener("change", (event) => {
+      const checkbox = event.target.closest("[data-cmc-used-key]");
+      if (!checkbox) {
+        return;
+      }
+      state.cmc.usedOverrides[checkbox.dataset.cmcUsedKey] = checkbox.checked;
+      markCmcPlotDirty();
+      renderCmcDropletReview(applyCurrentUsedOverrides());
+      rebuildCmcPlotIfReady();
     });
   }
 
   function exportCmcJson() {
-    if (!state.cmc.payload) {
+    if (!state.cmc.reviewPayload && !state.cmc.plotPayload) {
       return;
     }
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const reviewForExport = applyCurrentUsedOverrides();
+    const plotPayload = state.cmc.plotPayload;
     const payload = {
       exportedAt: new Date().toISOString(),
       analysisType: "cmc",
-      options: state.cmc.payload.options || getCmcOptions(),
-      summary: state.cmc.payload.summary,
-      rows: state.cmc.payload.rows,
-      points: state.cmc.payload.points,
-      files: state.cmc.payload.files,
-      droplets: (state.cmc.payload.files || []).flatMap((file) =>
+      options: getCmcOptions(),
+      reviewPayload: reviewForExport,
+      plotPayload,
+      usedOverrides: state.cmc.usedOverrides,
+      manualOverrides: state.cmc.usedOverrides,
+      summary: plotPayload ? plotPayload.summary : (reviewForExport && reviewForExport.summary),
+      rows: plotPayload ? plotPayload.rows : [],
+      points: plotPayload ? plotPayload.points : [],
+      files: plotPayload ? plotPayload.files : (reviewForExport ? reviewForExport.files : []),
+      droplets: ((plotPayload && plotPayload.files) || (reviewForExport && reviewForExport.files) || []).flatMap((file) =>
         (file.droplets || []).map((droplet) => ({
           filename: file.filename,
           metadata: file.metadata,
           ...droplet,
         }))
       ),
-      fit: state.cmc.payload.fit,
+      fit: plotPayload ? plotPayload.fit : null,
       metadata: {
         concentrationUnit: dom.cmcUnit.value,
         useLog: dom.cmcUseLog.checked,
@@ -579,8 +822,42 @@
   function bindActions() {
     dom.cmcInput.accept = config.ACCEPTED_DATA_EXTENSIONS;
     dom.cmcInput.addEventListener("change", handleCmcSelection);
-    dom.cmcEquilibriumMode.addEventListener("change", syncCmcModeFields);
-    dom.cmcAnalyze.addEventListener("click", withUiLock(runCmc));
+    dom.cmcEquilibriumMode.addEventListener("change", () => {
+      syncCmcModeFields();
+      markCmcReviewDirty();
+    });
+    [
+      dom.cmcTimeMin,
+      dom.cmcTimeMax,
+      dom.cmcMinPlateauWindow,
+      dom.cmcMaxSlope,
+      dom.cmcMaxSd,
+      dom.cmcMaxVolumeLoss,
+      dom.cmcDensityOverride,
+      dom.cmcPerformancePreset,
+    ].forEach((element) => {
+      element.addEventListener("input", markCmcReviewDirty);
+      element.addEventListener("change", markCmcReviewDirty);
+    });
+    [
+      dom.cmcUseLog,
+      dom.cmcFitModel,
+      dom.cmcSampleType,
+      dom.cmcAggregationMethod,
+      dom.cmcUnit,
+      dom.cmcTemperature,
+    ].forEach((element) => {
+      element.addEventListener("change", () => {
+        markCmcPlotDirty();
+        rebuildCmcPlotIfReady();
+      });
+      element.addEventListener("input", () => {
+        markCmcPlotDirty();
+      });
+    });
+    dom.cmcReview.addEventListener("click", withUiLock(() => reviewCmcDroplets({ force: true })));
+    dom.cmcPlotFit.addEventListener("click", withUiLock(plotCmcFromReview));
+    dom.cmcClearFiles.addEventListener("click", clearCmcFiles);
     dom.runtimeRetry.addEventListener("click", () => {
       retryRuntime();
     });
@@ -593,18 +870,18 @@
     });
 
     dom.cmcExport.addEventListener("click", async () => {
-      if (state.cmc.payload) {
+      if (state.cmc.plotPayload) {
         await charts.exportPlotAsPng(dom.cmcCanvas, "cmc-curve");
       }
     });
     dom.cmcExportSvg.addEventListener("click", async () => {
-      if (state.cmc.payload) {
+      if (state.cmc.plotPayload) {
         await charts.exportPlotImage(dom.cmcCanvas, "cmc-curve", { format: "svg" });
       }
     });
     dom.cmcExportJson.addEventListener("click", exportCmcJson);
     dom.cmcSendPublication.addEventListener("click", () => {
-      if (!state.cmc.payload || !publicationController) {
+      if (!state.cmc.plotPayload || !publicationController) {
         return;
       }
       publicationController.copyFromPlot(dom.cmcCanvas, {
@@ -613,6 +890,31 @@
         filenameBase: "cmc-publication",
       });
     });
+    const cmcPanel = document.querySelector("[data-tab-panel='cmc']");
+    if (cmcPanel) {
+      cmcPanel.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        cmcPanel.classList.add("drop-active");
+      });
+      cmcPanel.addEventListener("dragleave", () => {
+        cmcPanel.classList.remove("drop-active");
+      });
+      cmcPanel.addEventListener("drop", (event) => {
+        event.preventDefault();
+        cmcPanel.classList.remove("drop-active");
+        const files = Array.from(event.dataTransfer ? event.dataTransfer.files || [] : []);
+        if (!files.length) {
+          return;
+        }
+        state.cmc.rows = cmcWorkflow.appendFileRows(
+          state.cmc.rows,
+          files,
+          inferConcentrationFromFilename
+        );
+        clearCmcResults({ clearOverrides: true });
+        renderCmcTable();
+      });
+    }
   }
 
   function initializePublicationModule() {

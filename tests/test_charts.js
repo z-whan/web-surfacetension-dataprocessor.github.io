@@ -131,6 +131,8 @@ assert(charts, "SurfaceLabCharts should attach to globalThis");
   assert.strictEqual(captured.data.length, 1);
   assert.strictEqual(captured.data[0].name, undefined);
   assert.strictEqual(captured.data[0].marker.symbol[1], "diamond");
+  assert.strictEqual(captured.layout.yaxis.title.text, "Surface tension σ (mN/m)");
+  assert(captured.data[0].hovertemplate.includes("σ=%{y:.4f}"));
 
   await charts.renderCmcPlot(
     {},
@@ -142,15 +144,19 @@ assert(charts, "SurfaceLabCharts should attach to globalThis");
       ],
       fit: {
         cmc: 0.08,
-        fitSeries: [{ name: "CMC fit", x: [0.01, 0.1], y: [70, 55] }],
+        fitSegments: [
+          { name: "pre-CMC decline", x: [0.01, 0.08], y: [70, 56] },
+          { name: "post-CMC plateau", x: [0.08, 0.1], y: [56, 56] },
+        ],
         cmcMarker: { x: 0.08, y: 56, label: "CMC" },
       },
     }
   );
-  assert.strictEqual(captured.data.length, 3);
-  assert.strictEqual(captured.data[1].name, "CMC fit");
+  assert.strictEqual(captured.data.length, 4);
+  assert.strictEqual(captured.data[1].name, "pre-CMC decline");
   assert.strictEqual(captured.data[1].line.dash, "dash");
-  assert.strictEqual(captured.data[2].name, "CMC");
+  assert.strictEqual(captured.data[2].name, "post-CMC plateau");
+  assert.strictEqual(captured.data[3].name, "CMC");
   assert.strictEqual(captured.layout.shapes.length, 1);
 
   console.log("charts tests passed");

@@ -114,7 +114,7 @@ def normalize_cmc_qc_options(options: dict[str, Any] | None = None) -> dict[str,
 
     model_value = normalized.get("model") if options and "model" in options else normalized.get("fitModel", "segmented_continuous")
     model = str(model_value).strip().lower()
-    normalized["fitModel"] = model if model in ("segmented_continuous", "segmented_flat_plateau") else "segmented_continuous"
+    normalized["fitModel"] = model if model in ("none", "segmented_continuous", "segmented_flat_plateau") else "segmented_continuous"
 
     sample_type = str(normalized.get("sampleType", "unknown")).strip()
     normalized["sampleType"] = sample_type if sample_type in ("single", "mixture", "WSOM", "unknown") else "unknown"

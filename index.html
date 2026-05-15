@@ -432,63 +432,146 @@
         <header class="panel-header">
           <div>
             <h2>CMC Analysis</h2>
-            <p>Choose files, set the time window, review concentrations, then run.</p>
+            <p>Choose files, review droplet QC, and fit a segmented transition when the concentration series supports it.</p>
           </div>
         </header>
 
         <div class="analysis-layout">
-          <div class="field-card">
-            <div class="field-grid">
-              <div class="field">
-                <label for="cmc-files">Data Files</label>
-                <input id="cmc-files" type="file" multiple />
-              </div>
+          <div class="controls-stack">
+            <div class="field-card">
+              <div class="field-grid">
+                <div class="field">
+                  <label for="cmc-files">Data Files</label>
+                  <input id="cmc-files" type="file" multiple />
+                </div>
 
-              <div class="form-grid">
-                <div class="field">
-                  <label for="cmc-time-min">Time Min (ms)</label>
-                  <input id="cmc-time-min" type="text" placeholder="e.g. 50" />
+                <div class="form-grid">
+                  <div class="field">
+                    <label for="cmc-unit">Concentration Unit</label>
+                    <input id="cmc-unit" type="text" value="mM" />
+                  </div>
+                  <div class="field">
+                    <label for="cmc-sample-type">Sample Type</label>
+                    <select id="cmc-sample-type">
+                      <option value="single">single</option>
+                      <option value="mixture">mixture</option>
+                      <option value="WSOM">WSOM</option>
+                      <option value="unknown" selected>unknown</option>
+                    </select>
+                  </div>
+                  <label class="checkbox-row checkbox-row-compact" for="cmc-use-log">
+                    <input id="cmc-use-log" type="checkbox" />
+                    Use log10 C
+                  </label>
                 </div>
-                <div class="field">
-                  <label for="cmc-time-max">Time Max (ms)</label>
-                  <input id="cmc-time-max" type="text" placeholder="e.g. 150" />
-                </div>
-                <div class="field">
-                  <label for="cmc-unit">Concentration Unit</label>
-                  <input id="cmc-unit" type="text" value="mM" />
-                </div>
-                <label class="checkbox-row" for="cmc-use-log">
-                  <input id="cmc-use-log" type="checkbox" />
-                  Use log10 C
-                </label>
-              </div>
 
-              <div class="button-row">
-                <button
-                  id="cmc-run"
-                  class="primary-button"
-                  type="button"
-                  data-requires-runtime="true"
-                >
-                  Analyze CMC
-                </button>
-                <button id="cmc-export" class="secondary-button" type="button" disabled>
-                  Export PNG
-                </button>
-                <button id="cmc-export-svg" class="secondary-button" type="button" disabled>
-                  Export SVG
-                </button>
-                <button id="cmc-send-publication" class="ghost-button" type="button" disabled>
-                  Send to Publication Plot
-                </button>
+                <div class="field">
+                  <label for="cmc-equilibrium-mode">Equilibrium Mode</label>
+                  <select id="cmc-equilibrium-mode">
+                    <option value="manual">manual window</option>
+                    <option value="auto">auto plateau</option>
+                  </select>
+                </div>
+
+                <div class="form-grid" data-cmc-manual-fields>
+                  <div class="field">
+                    <label for="cmc-time-min">Time Min (ms)</label>
+                    <input id="cmc-time-min" type="text" placeholder="e.g. 50" />
+                  </div>
+                  <div class="field">
+                    <label for="cmc-time-max">Time Max (ms)</label>
+                    <input id="cmc-time-max" type="text" placeholder="e.g. 150" />
+                  </div>
+                </div>
+
+                <details class="collapsible-section" data-cmc-auto-fields hidden>
+                  <summary>Advanced Plateau Criteria</summary>
+                  <div class="collapsible-section-body">
+                    <div class="form-grid">
+                      <div class="field">
+                        <label for="cmc-min-plateau-window">Min Plateau Window (ms)</label>
+                        <input id="cmc-min-plateau-window" type="text" value="5000" />
+                      </div>
+                      <div class="field">
+                        <label for="cmc-max-slope">Max |Slope| (mN/m/min)</label>
+                        <input id="cmc-max-slope" type="text" value="0.5" />
+                      </div>
+                      <div class="field">
+                        <label for="cmc-max-sd">Max Plateau SD (mN/m)</label>
+                        <input id="cmc-max-sd" type="text" value="0.5" />
+                      </div>
+                      <div class="field">
+                        <label for="cmc-max-volume-loss">Max Volume Loss (%)</label>
+                        <input id="cmc-max-volume-loss" type="text" value="10" />
+                      </div>
+                      <div class="field">
+                        <label for="cmc-aggregation-method">Aggregation Method</label>
+                        <select id="cmc-aggregation-method">
+                          <option value="mean">mean</option>
+                          <option value="median">median</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </details>
+
+                <div class="field">
+                  <label for="cmc-fit-model">Fit Model</label>
+                  <select id="cmc-fit-model">
+                    <option value="none">none</option>
+                    <option value="segmented_continuous" selected>segmented continuous</option>
+                    <option value="segmented_flat_plateau">flat plateau</option>
+                  </select>
+                </div>
+
+                <details class="collapsible-section">
+                  <summary>Optional Metadata</summary>
+                  <div class="collapsible-section-body">
+                    <div class="form-grid">
+                      <div class="field">
+                        <label for="cmc-temperature">Temperature °C</label>
+                        <input id="cmc-temperature" type="text" placeholder="optional" />
+                      </div>
+                      <div class="field">
+                        <label for="cmc-density-override">Density Override d(g/cm^3)</label>
+                        <input id="cmc-density-override" type="text" placeholder="optional" />
+                      </div>
+                    </div>
+                  </div>
+                </details>
+
+                <div class="button-row">
+                  <button
+                    id="cmc-run"
+                    class="primary-button"
+                    type="button"
+                    data-requires-runtime="true"
+                  >
+                    Analyze CMC
+                  </button>
+                  <button id="cmc-export" class="secondary-button" type="button" disabled>
+                    Export PNG
+                  </button>
+                  <button id="cmc-export-svg" class="secondary-button" type="button" disabled>
+                    Export SVG
+                  </button>
+                  <button id="cmc-export-json" class="secondary-button" type="button" disabled>
+                    Export CMC JSON
+                  </button>
+                  <button id="cmc-send-publication" class="ghost-button" type="button" disabled>
+                    Send to Publication Plot
+                  </button>
+                </div>
               </div>
             </div>
           </div>
 
-          <div class="plot-card">
-            <h3>CMC Plot</h3>
-            <div class="metric-grid" data-cmc-summary></div>
-            <div id="cmc-canvas" class="plot-surface"></div>
+          <div class="results-stack">
+            <div class="plot-card">
+              <h3>CMC Plot</h3>
+              <div class="metric-grid" data-cmc-summary></div>
+              <div id="cmc-canvas" class="plot-surface"></div>
+            </div>
           </div>
         </div>
 
@@ -504,12 +587,21 @@
                   <th>#</th>
                   <th>File</th>
                   <th>Concentration</th>
+                  <th>Metadata</th>
                   <th>Action</th>
                 </tr>
               </thead>
               <tbody data-cmc-table-body></tbody>
             </table>
           </div>
+        </div>
+
+        <div class="table-card">
+          <h3>Droplet QC Review</h3>
+          <div class="empty-state" data-cmc-droplet-empty>
+            Run CMC analysis to review droplet-level QC.
+          </div>
+          <div data-cmc-droplet-review></div>
         </div>
       </section>
 

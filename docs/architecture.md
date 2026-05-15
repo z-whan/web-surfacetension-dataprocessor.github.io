@@ -37,6 +37,21 @@ traces and layouts for time-series plots, noise/analysis plots, compare plots,
 CMC plots, and image export. Controllers pass already-shaped payloads into this
 layer.
 
+## CMC Analysis
+
+The CMC tab is wired in `assets/js/app.js` and calls `py/web_bridge.py`
+through Pyodide. The Python source under `py/DataProcessor/services/` owns the
+analysis pipeline: FAMAS multi-experiment files are adapted into per-droplet
+traces, each droplet receives plateau/equilibrium QC, concentration-level
+aggregates are computed from accepted droplets, and optional segmented CMC/CAC
+fits are returned as Plotly-ready payload data.
+
+The CMC payload intentionally keeps provenance alongside the plot data:
+`rows`, `points`, `files`, droplet QC, source metadata, options, and fit
+diagnostics are all preserved so JSON exports can be audited later. When Python
+CMC code changes, regenerate `assets/js/python-sources.js` from `py/` before
+testing or committing.
+
 ## Publication Plot Styling
 
 `assets/js/publication-plot.js` receives copied Plotly figures from analysis
@@ -121,10 +136,5 @@ python3 tools/build_python_sources.py --check
 - The app intentionally stays plain JavaScript loaded by `index.html`; do not
   add a bundler, framework, or TypeScript build step without changing the
   deployment model.
-- CMC-specific enhancements are intentionally out of scope for non-CMC
-  maintainability, diagnostics, and session work.
 - CMC session import/export behavior is not covered by the non-CMC session
   manager.
-- Deferred issue: CMC rendering in `assets/js/app.js` still uses `innerHTML` for
-  CMC-specific summary and table markup, including displayed filenames. That
-  behavior is left unchanged until a dedicated CMC refactor.

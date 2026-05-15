@@ -124,12 +124,13 @@ assert(charts, "SurfaceLabCharts should attach to globalThis");
       xLabel: "Concentration C (mM)",
       points: [
         { x: 0.01, y: 70, error: 0.2, filename: "a.csv", concentration: 0.01, dropletCount: 3 },
-        { x: 0.1, y: 55, error: 0.15, filename: "b.csv", concentration: 0.1, dropletCount: 3 },
+        { x: 0.1, y: 55, error: 0.15, filename: "b.csv", concentration: 0.1, dropletCount: 3, warningCount: 1 },
       ],
     }
   );
   assert.strictEqual(captured.data.length, 1);
   assert.strictEqual(captured.data[0].name, undefined);
+  assert.strictEqual(captured.data[0].marker.symbol[1], "diamond");
 
   await charts.renderCmcPlot(
     {},

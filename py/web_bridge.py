@@ -516,6 +516,7 @@ def analyze_cmc_files(
             aggregation_method=str(qc_options["aggregationMethod"]),
         )
         aggregate_payload = aggregate.to_payload()
+        warning_count = sum(1 for qc in droplet_qc if qc.flags)
 
         rows.append(
             {
@@ -534,6 +535,7 @@ def analyze_cmc_files(
                 "usedDropletCount": aggregate.used_droplet_count,
                 "aggregationMethod": aggregate.aggregation_method,
                 "usedForAggregate": aggregate.used_droplet_count > 0,
+                "warningCount": warning_count,
                 "file": {
                     "filename": filename,
                     "path": path,
@@ -579,6 +581,7 @@ def analyze_cmc_files(
             "dropletCount": int(plot_rows[idx]["dropletCount"]),
             "usedDropletCount": int(plot_rows[idx]["usedDropletCount"]),
             "aggregationMethod": plot_rows[idx]["aggregationMethod"],
+            "warningCount": int(plot_rows[idx]["warningCount"]),
         }
         for idx in range(len(plot_rows))
     ]
@@ -598,6 +601,7 @@ def analyze_cmc_files(
             "usedDropletCount": int(row["usedDropletCount"]),
             "aggregationMethod": row["aggregationMethod"],
             "usedForAggregate": bool(row["usedForAggregate"]),
+            "warningCount": int(row["warningCount"]),
         }
         for row in plot_rows
     ]
@@ -605,7 +609,16 @@ def analyze_cmc_files(
         **qc_options,
         "plotUseLog": bool(use_log),
     }
-    fit_payload = fit_cmc_curve(point_payload, fit_options)
+    if qc_options["fitModel"] == "none":
+        fit_payload = {
+            "modelKey": "none",
+            "modelLabel": "No fit",
+            "fitSeries": [],
+            "cmcMarker": None,
+            "warnings": [],
+        }
+    else:
+        fit_payload = fit_cmc_curve(point_payload, fit_options)
 
     return {
         "xLabel": x_label,
@@ -614,6 +627,7 @@ def analyze_cmc_files(
         "rows": row_payload,
         "files": [row["file"] for row in plot_rows],
         "fit": _payload_value(fit_payload),
+        "options": _payload_value(qc_options),
         "summary": {
             "fileCount": len(plot_rows),
             "timeWindow": [_finite_or_none(t_min), _finite_or_none(t_max)],

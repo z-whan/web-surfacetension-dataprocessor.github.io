@@ -323,7 +323,8 @@
       hovertemplate: "%{text}<br>γ=%{y:.4f}<extra></extra>",
       marker: {
         size: 8,
-        color: "#2f5d8a",
+        color: payload.points.map((point) => Number(point.warningCount) > 0 ? "#b56a2a" : "#2f5d8a"),
+        symbol: payload.points.map((point) => Number(point.warningCount) > 0 ? "diamond" : "circle"),
         line: { width: 1, color: "#ffffff" },
       },
       line: { width: 2.2, color: "#8a4f2f" },

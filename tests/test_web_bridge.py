@@ -21,6 +21,7 @@ from DataProcessor.services.dataframe_loader import (  # noqa: E402
     parse_famas_measurement_detail_volumes,
     parse_famas_metadata,
 )
+from DataProcessor.services.cmc_analysis import fit_cmc_curve  # noqa: E402
 from web_bridge import (  # noqa: E402
     analyze_cmc_files,
     analyze_plot_file,
@@ -396,6 +397,11 @@ class WebBridgeTests(unittest.TestCase):
             )
             self.assertEqual(payload["summary"]["fileCount"], 1)
             self.assertEqual(payload["points"][0]["y"], 12.5)
+            self.assertIn("fit", payload)
+            self.assertIn(
+                "NOT_ENOUGH_CONCENTRATIONS",
+                [warning["code"] for warning in payload["fit"]["warnings"]],
+            )
         finally:
             os.unlink(path)
 
@@ -570,6 +576,73 @@ class WebBridgeTests(unittest.TestCase):
             )
         finally:
             os.unlink(path)
+
+    def test_fit_cmc_curve_sds_like_segmented_breakpoint(self):
+        log_c = np.asarray([-3.0, -2.5, -2.0, -1.5, -1.2, -0.8, -0.5, 0.0])
+        concentrations = np.power(10.0, log_c)
+        gamma = [75.0, 70.0, 65.0, 60.0, 57.0, 55.0, 55.0, 55.1]
+        points = [
+            {"concentration": float(c), "y": y, "error": 0.1}
+            for c, y in zip(concentrations, gamma)
+        ]
+
+        fit = fit_cmc_curve(points, {
+            "model": "segmented_flat_plateau",
+            "sampleType": "single",
+            "nBootstrap": 40,
+        })
+
+        self.assertEqual(fit["modelKey"], "segmented_flat_plateau")
+        self.assertAlmostEqual(fit["cmcLog10"], -1.0, delta=0.08)
+        self.assertAlmostEqual(fit["cmc"], 0.1, delta=0.025)
+        self.assertEqual(fit["cmcMarker"]["label"], "CMC")
+        self.assertTrue(fit["fitSeries"][0]["x"])
+
+    def test_fit_cmc_curve_excludes_nonpositive_blank_from_log_fit(self):
+        log_c = np.asarray([-3.0, -2.5, -2.0, -1.5, -1.2, -0.8])
+        points = [{"concentration": 0.0, "y": 72.0, "error": 0.2}]
+        points.extend(
+            {"concentration": float(10 ** x), "y": float(75 + -10 * (x + 3)), "error": 0.2}
+            for x in log_c
+        )
+
+        fit = fit_cmc_curve(points, {"model": "segmented_continuous", "nBootstrap": 0})
+
+        self.assertNotIn(0, fit["usedPointIndexes"])
+        self.assertIn(
+            "LOG_REQUIRES_POSITIVE_CONCENTRATIONS",
+            [warning["code"] for warning in fit["warnings"]],
+        )
+
+    def test_fit_cmc_curve_not_enough_points_warns_without_exception(self):
+        fit = fit_cmc_curve([
+            {"concentration": 0.001, "y": 72.0},
+            {"concentration": 0.01, "y": 62.0},
+            {"concentration": 0.1, "y": 52.0},
+        ], {"model": "segmented_continuous"})
+
+        self.assertIsNone(fit["cmc"])
+        self.assertEqual(fit["fitSeries"], [])
+        self.assertIn(
+            "NOT_ENOUGH_CONCENTRATIONS",
+            [warning["code"] for warning in fit["warnings"]],
+        )
+
+    def test_fit_cmc_curve_wsom_uses_apparent_label(self):
+        log_c = np.asarray([-3.0, -2.5, -2.0, -1.5, -1.2, -0.8, -0.5, 0.0])
+        points = [
+            {"concentration": float(10 ** x), "y": y, "error": 0.2}
+            for x, y in zip(log_c, [75, 70, 65, 60, 57, 55, 55, 55])
+        ]
+
+        fit = fit_cmc_curve(points, {
+            "model": "segmented_flat_plateau",
+            "sampleType": "WSOM",
+            "nBootstrap": 0,
+        })
+
+        self.assertEqual(fit["cmcMarker"]["label"], "apparent CMC/CAC")
+        self.assertIn("apparent CMC/CAC", fit["equationText"])
 
     def test_extract_plot_trend(self):
         content = "Time (ms),I.T.(mN/m).1\n0,0\n1,1\n2,2\n3,3\n4,4\n5,5\n"

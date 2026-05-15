@@ -8,6 +8,7 @@ from DataProcessor.services.cmc_analysis import (
     aggregate_cmc_qc_results,
     compute_droplet_plateau_qc,
     extract_cmc_droplet_traces,
+    fit_cmc_curve,
     infer_concentration_from_filename,
     mark_outliers_within_concentration,
     normalize_cmc_qc_options,
@@ -567,44 +568,52 @@ def analyze_cmc_files(
     order = np.argsort(x_arr)
     plot_rows = [rows[int(idx)] for idx in order.tolist()]
     x_sorted = x_arr[order]
+    point_payload = [
+        {
+            "x": _finite_or_none(x_sorted[idx]),
+            "y": _finite_or_none(plot_rows[idx]["gammaValue"]),
+            "error": _finite_or_none(plot_rows[idx]["gammaError"]),
+            "errorMetric": plot_rows[idx]["gammaErrorMetric"],
+            "filename": plot_rows[idx]["filename"],
+            "concentration": _finite_or_none(plot_rows[idx]["concentration"]),
+            "dropletCount": int(plot_rows[idx]["dropletCount"]),
+            "usedDropletCount": int(plot_rows[idx]["usedDropletCount"]),
+            "aggregationMethod": plot_rows[idx]["aggregationMethod"],
+        }
+        for idx in range(len(plot_rows))
+    ]
+    row_payload = [
+        {
+            "filename": row["filename"],
+            "concentration": _finite_or_none(row["concentration"]),
+            "gammaMean": _finite_or_none(row["gammaMean"]),
+            "gammaMedian": _finite_or_none(row["gammaMedian"]),
+            "gammaStd": _finite_or_none(row["gammaStd"]),
+            "gammaSe": _finite_or_none(row["gammaSe"]),
+            "gammaMad": _finite_or_none(row["gammaMad"]),
+            "gammaValue": _finite_or_none(row["gammaValue"]),
+            "gammaError": _finite_or_none(row["gammaError"]),
+            "gammaErrorMetric": row["gammaErrorMetric"],
+            "dropletCount": int(row["dropletCount"]),
+            "usedDropletCount": int(row["usedDropletCount"]),
+            "aggregationMethod": row["aggregationMethod"],
+            "usedForAggregate": bool(row["usedForAggregate"]),
+        }
+        for row in plot_rows
+    ]
+    fit_options = {
+        **qc_options,
+        "plotUseLog": bool(use_log),
+    }
+    fit_payload = fit_cmc_curve(point_payload, fit_options)
 
     return {
         "xLabel": x_label,
         "useLog": bool(use_log),
-        "points": [
-            {
-                "x": _finite_or_none(x_sorted[idx]),
-                "y": _finite_or_none(plot_rows[idx]["gammaValue"]),
-                "error": _finite_or_none(plot_rows[idx]["gammaError"]),
-                "errorMetric": plot_rows[idx]["gammaErrorMetric"],
-                "filename": plot_rows[idx]["filename"],
-                "concentration": _finite_or_none(plot_rows[idx]["concentration"]),
-                "dropletCount": int(plot_rows[idx]["dropletCount"]),
-                "usedDropletCount": int(plot_rows[idx]["usedDropletCount"]),
-                "aggregationMethod": plot_rows[idx]["aggregationMethod"],
-            }
-            for idx in range(len(plot_rows))
-        ],
-        "rows": [
-            {
-                "filename": row["filename"],
-                "concentration": _finite_or_none(row["concentration"]),
-                "gammaMean": _finite_or_none(row["gammaMean"]),
-                "gammaMedian": _finite_or_none(row["gammaMedian"]),
-                "gammaStd": _finite_or_none(row["gammaStd"]),
-                "gammaSe": _finite_or_none(row["gammaSe"]),
-                "gammaMad": _finite_or_none(row["gammaMad"]),
-                "gammaValue": _finite_or_none(row["gammaValue"]),
-                "gammaError": _finite_or_none(row["gammaError"]),
-                "gammaErrorMetric": row["gammaErrorMetric"],
-                "dropletCount": int(row["dropletCount"]),
-                "usedDropletCount": int(row["usedDropletCount"]),
-                "aggregationMethod": row["aggregationMethod"],
-                "usedForAggregate": bool(row["usedForAggregate"]),
-            }
-            for row in plot_rows
-        ],
+        "points": point_payload,
+        "rows": row_payload,
         "files": [row["file"] for row in plot_rows],
+        "fit": _payload_value(fit_payload),
         "summary": {
             "fileCount": len(plot_rows),
             "timeWindow": [_finite_or_none(t_min), _finite_or_none(t_max)],

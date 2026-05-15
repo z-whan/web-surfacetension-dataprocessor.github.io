@@ -118,6 +118,40 @@ assert(charts, "SurfaceLabCharts should attach to globalThis");
   assert.strictEqual(captured.layout.yaxis.title.text, "I.T. (mN/m)");
   assert.strictEqual(captured.layout.yaxis2.title.text, "Droplet volume, V (μL)");
 
+  await charts.renderCmcPlot(
+    {},
+    {
+      xLabel: "Concentration C (mM)",
+      points: [
+        { x: 0.01, y: 70, error: 0.2, filename: "a.csv", concentration: 0.01, dropletCount: 3 },
+        { x: 0.1, y: 55, error: 0.15, filename: "b.csv", concentration: 0.1, dropletCount: 3 },
+      ],
+    }
+  );
+  assert.strictEqual(captured.data.length, 1);
+  assert.strictEqual(captured.data[0].name, undefined);
+
+  await charts.renderCmcPlot(
+    {},
+    {
+      xLabel: "Concentration C (mM)",
+      points: [
+        { x: 0.01, y: 70, error: 0.2, filename: "a.csv", concentration: 0.01, dropletCount: 3 },
+        { x: 0.1, y: 55, error: 0.15, filename: "b.csv", concentration: 0.1, dropletCount: 3 },
+      ],
+      fit: {
+        cmc: 0.08,
+        fitSeries: [{ name: "CMC fit", x: [0.01, 0.1], y: [70, 55] }],
+        cmcMarker: { x: 0.08, y: 56, label: "CMC" },
+      },
+    }
+  );
+  assert.strictEqual(captured.data.length, 3);
+  assert.strictEqual(captured.data[1].name, "CMC fit");
+  assert.strictEqual(captured.data[1].line.dash, "dash");
+  assert.strictEqual(captured.data[2].name, "CMC");
+  assert.strictEqual(captured.layout.shapes.length, 1);
+
   console.log("charts tests passed");
 })().catch((error) => {
   console.error(error);

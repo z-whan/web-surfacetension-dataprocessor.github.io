@@ -310,6 +310,7 @@
   }
 
   async function renderCmcPlot(target, payload) {
+    const traces = [];
     const trace = {
       type: "scatter",
       mode: "lines+markers",
@@ -335,17 +336,79 @@
         width: 5,
       },
     };
+    traces.push(trace);
+
+    const fit = payload.fit || null;
+    if (fit && Array.isArray(fit.fitSeries) && fit.fitSeries.length) {
+      fit.fitSeries.forEach((series, index) => {
+        traces.push({
+          type: "scatter",
+          mode: "lines",
+          name: series.name || "CMC fit",
+          x: series.x || [],
+          y: series.y || [],
+          hovertemplate: "%{x}, %{y:.4f}<extra></extra>",
+          line: {
+            width: 2,
+            color: PALETTE[(index + 2) % PALETTE.length],
+            dash: "dash",
+          },
+        });
+      });
+    }
+
+    if (fit && fit.cmcMarker && Number.isFinite(Number(fit.cmcMarker.x)) && Number.isFinite(Number(fit.cmcMarker.y))) {
+      traces.push({
+        type: "scatter",
+        mode: "markers",
+        name: fit.cmcMarker.label || "CMC",
+        x: [fit.cmcMarker.x],
+        y: [fit.cmcMarker.y],
+        hovertemplate:
+          (fit.cmcMarker.label || "CMC") +
+          "<br>C=" +
+          (fit.cmc == null ? "n/a" : Number(fit.cmc).toPrecision(4)) +
+          "<br>γ=%{y:.4f}<extra></extra>",
+        marker: {
+          size: 11,
+          color: "#3c7a5b",
+          symbol: "diamond",
+          line: { width: 1, color: "#ffffff" },
+        },
+      });
+    }
+
+    const layout = baseLayout({
+      xLabel: payload.xLabel,
+      yLabel: "Surface tension γ (mN/m)",
+      title: "CMC Curve",
+      xScale: "linear",
+      yScale: "linear",
+    });
+
+    if (fit && fit.cmcMarker && Number.isFinite(Number(fit.cmcMarker.x))) {
+      layout.shapes = [
+        {
+          type: "line",
+          x0: fit.cmcMarker.x,
+          x1: fit.cmcMarker.x,
+          y0: 0,
+          y1: 1,
+          xref: "x",
+          yref: "paper",
+          line: {
+            color: "#3c7a5b",
+            width: 1.2,
+            dash: "dot",
+          },
+        },
+      ];
+    }
 
     await Plotly.react(
       target,
-      [trace],
-      baseLayout({
-        xLabel: payload.xLabel,
-        yLabel: "Surface tension γ (mN/m)",
-        title: "CMC Curve",
-        xScale: "linear",
-        yScale: "linear",
-      }),
+      traces,
+      layout,
       { responsive: true, displaylogo: false }
     );
   }

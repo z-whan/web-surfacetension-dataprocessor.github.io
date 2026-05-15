@@ -12,6 +12,16 @@ _TIME_KEYWORDS = ("時間", "Time", "time")
 _COMMON_DELIMITERS = (",", ";", "\t", "|")
 
 
+def _numeric_or_none(value) -> float | int | None:
+    numeric = pd.to_numeric(value, errors="coerce")
+    if pd.isna(numeric):
+        return None
+    number = float(numeric)
+    if number.is_integer():
+        return int(number)
+    return number
+
+
 def _decode_csv_text(csv_path: str) -> str | None:
     with open(csv_path, "rb") as handle:
         raw = handle.read()
@@ -94,20 +104,211 @@ def _find_header_row(lines: list[str]) -> tuple[int | None, str]:
     return header_idx, delimiter_guess
 
 
+def _find_famas_worksheet_header(rows: list[list[str]]) -> int | None:
+    for idx, row in enumerate(rows):
+        has_time = any("時間(ms)" in (cell or "") for cell in row)
+        has_it = any("I.T" in (cell or "") for cell in row)
+        if has_time and has_it:
+            return idx
+    return None
+
+
+def _normalized_metadata_value(raw_items: dict[str, str], patterns: tuple[str, ...]):
+    for key, value in raw_items.items():
+        key_norm = key.strip().lower().replace(" ", "")
+        if any(pattern in key_norm or pattern in key for pattern in patterns):
+            return value
+    return None
+
+
+def _time_value_to_ms(value, key: str = "") -> float | int | None:
+    numeric = _numeric_or_none(value)
+    if numeric is None:
+        return None
+
+    key_norm = key.lower()
+    if "ms" in key_norm or "msec" in key_norm or "ミリ" in key or "毫秒" in key:
+        return numeric
+    if "sec" in key_norm or "(s" in key_norm or "秒" in key:
+        return float(numeric) * 1000
+    return numeric
+
+
+def _first_numeric_from_columns(
+    rows: list[list[str]],
+    header_idx: int,
+    header_names: tuple[str, ...],
+) -> float | int | None:
+    header = rows[header_idx]
+    col_indexes = [
+        idx
+        for idx, cell in enumerate(header)
+        if (cell or "").strip() in header_names
+    ]
+    if not col_indexes:
+        return None
+
+    for row in rows[header_idx + 1 :]:
+        first = (row[0] if row else "").strip()
+        if first.startswith("[") and first.endswith("]"):
+            break
+        for col_idx in col_indexes:
+            if col_idx >= len(row):
+                continue
+            numeric = _numeric_or_none(row[col_idx])
+            if numeric is not None:
+                return numeric
+    return None
+
+
+def _positive_time_deltas_ms(rows: list[list[str]], header_idx: int) -> list[float]:
+    header = rows[header_idx]
+    try:
+        time_idx = next(i for i, cell in enumerate(header) if (cell or "").strip() == "時間(ms)")
+    except StopIteration:
+        return []
+
+    times: list[float] = []
+    for row in rows[header_idx + 1 :]:
+        first = (row[0] if row else "").strip()
+        if first.startswith("[") and first.endswith("]"):
+            break
+        if time_idx >= len(row):
+            continue
+        numeric = _numeric_or_none(row[time_idx])
+        if numeric is not None:
+            times.append(float(numeric))
+
+    return [
+        times[idx] - times[idx - 1]
+        for idx in range(1, len(times))
+        if times[idx] > times[idx - 1]
+    ]
+
+
+def _count_famas_measurement_rows(rows: list[list[str]], header_idx: int) -> int:
+    count = 0
+    for row in rows[header_idx + 1 :]:
+        first = (row[0] if row else "").strip()
+        if not first or (first.startswith("[") and first.endswith("]")):
+            break
+        count += 1
+    return count
+
+
+def _count_famas_experiments(rows: list[list[str]], header_idx: int) -> int | None:
+    if header_idx == 0:
+        return None
+
+    header = rows[header_idx]
+    prefix = rows[header_idx - 1]
+    if len(prefix) < len(header):
+        prefix = [""] * (len(header) - len(prefix)) + prefix
+    elif len(prefix) > len(header):
+        prefix = prefix[-len(header) :]
+
+    indexes = {
+        int((pfx or "").strip())
+        for pfx, col_name in zip(prefix, header)
+        if (pfx or "").strip().isdigit()
+        and (col_name or "").strip() == "I.T.(mN/m)"
+    }
+    return len(indexes) if indexes else None
+
+
+def parse_famas_metadata(csv_path: str) -> dict[str, object]:
+    """Extract normalized metadata from a FAMAS CSV when recognizable."""
+    rows = _csv_rows_from_famas_file(csv_path)
+    if rows is None:
+        return {}
+
+    header_idx = _find_famas_worksheet_header(rows)
+    if header_idx is None or header_idx == 0:
+        return {}
+
+    raw_items: dict[str, str] = {}
+    for row in rows[:header_idx]:
+        cleaned = [str(cell).strip() for cell in row if str(cell).strip()]
+        if not cleaned:
+            continue
+        if cleaned[0].startswith("[") and cleaned[0].endswith("]"):
+            continue
+        if len(cleaned) >= 2:
+            raw_items[cleaned[0]] = cleaned[1]
+
+    analysis_method = _normalized_metadata_value(
+        raw_items,
+        ("analysismethod", "method", "解析法", "測定法", "測定方法", "メソッド"),
+    )
+    measurement_interval_raw = _normalized_metadata_value(
+        raw_items,
+        ("measurementinterval", "interval", "測定間隔", "間隔"),
+    )
+    measurement_count_raw = _normalized_metadata_value(
+        raw_items,
+        ("measurementcount", "pointcount", "測定点数", "測定数"),
+    )
+    wait_before_raw = _normalized_metadata_value(
+        raw_items,
+        ("waitbeforemeasurement", "waittime", "待機時間", "測定待ち", "待ち時間"),
+    )
+    target_volume_raw = _normalized_metadata_value(
+        raw_items,
+        ("targetdropvolume", "targetvolume", "滴下量", "液滴量", "目標体積"),
+    )
+    repeat_count_raw = _normalized_metadata_value(
+        raw_items,
+        ("repeatcount", "repeats", "繰返", "繰り返", "反復"),
+    )
+    density_raw = _normalized_metadata_value(
+        raw_items,
+        ("densitydelta", "densitydifference", "d(g/cm^3)", "密度差"),
+    )
+
+    deltas = _positive_time_deltas_ms(rows, header_idx)
+    measurement_interval = _time_value_to_ms(
+        measurement_interval_raw,
+        next((key for key in raw_items if raw_items[key] == measurement_interval_raw), ""),
+    )
+    if measurement_interval is None and deltas:
+        measurement_interval = float(pd.Series(deltas).median())
+
+    measurement_count = _numeric_or_none(measurement_count_raw)
+    if measurement_count is None:
+        measurement_count = _count_famas_measurement_rows(rows, header_idx)
+
+    repeat_count = _numeric_or_none(repeat_count_raw)
+    if repeat_count is None:
+        repeat_count = _count_famas_experiments(rows, header_idx)
+
+    density_delta = _numeric_or_none(density_raw)
+    if density_delta is None:
+        density_delta = _first_numeric_from_columns(rows, header_idx, ("d(g/cm^3)",))
+
+    metadata: dict[str, object] = {
+        "sourceFormat": "famas_multi_experiment_csv",
+        "analysisMethod": analysis_method,
+        "measurementIntervalMs": measurement_interval,
+        "measurementCount": measurement_count,
+        "waitBeforeMeasurementMs": _time_value_to_ms(
+            wait_before_raw,
+            next((key for key in raw_items if raw_items[key] == wait_before_raw), ""),
+        ),
+        "targetDropVolumeUL": _numeric_or_none(target_volume_raw),
+        "repeatCount": repeat_count,
+        "densityDeltaGPerCm3": density_delta,
+        "raw": raw_items,
+    }
+    return metadata
+
+
 def try_parse_famas_multi_experiment_csv(csv_path: str) -> pd.DataFrame | None:
     """Normalize two-row-header FAMAS exports to plot-friendly columns."""
     rows = _csv_rows_from_famas_file(csv_path)
     if rows is None:
         return None
 
-    header_idx = None
-    for idx, row in enumerate(rows):
-        has_time = any("時間(ms)" in (cell or "") for cell in row)
-        has_it = any("I.T" in (cell or "") for cell in row)
-        if has_time and has_it:
-            header_idx = idx
-            break
-
+    header_idx = _find_famas_worksheet_header(rows)
     if header_idx is None or header_idx == 0:
         return None
 
@@ -189,9 +390,11 @@ def try_parse_famas_multi_experiment_csv(csv_path: str) -> pd.DataFrame | None:
 
     df = pd.DataFrame(out)
     valid_time = df["時間(ms)"].notna().sum()
-    if valid_time < max(5, int(0.5 * len(df))):
+    if valid_time < max(1, int(0.5 * len(df))):
         return None
 
+    df.attrs["sourceFormat"] = "famas_multi_experiment_csv"
+    df.attrs["famasMetadata"] = parse_famas_metadata(csv_path)
     return df
 
 

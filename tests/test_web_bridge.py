@@ -17,7 +17,10 @@ from DataProcessor.services.plot_analysis import (  # noqa: E402
     first_data_cell_has_value,
     format_experiment_range,
 )
-from DataProcessor.services.dataframe_loader import parse_famas_measurement_detail_volumes  # noqa: E402
+from DataProcessor.services.dataframe_loader import (  # noqa: E402
+    parse_famas_measurement_detail_volumes,
+    parse_famas_metadata,
+)
 from web_bridge import (  # noqa: E402
     analyze_cmc_files,
     analyze_plot_file,
@@ -363,6 +366,68 @@ class WebBridgeTests(unittest.TestCase):
             )
             self.assertEqual(payload["summary"]["fileCount"], 1)
             self.assertEqual(payload["points"][0]["y"], 12.5)
+        finally:
+            os.unlink(path)
+
+    def test_analyze_cmc_files_uses_famas_droplet_columns_and_metadata(self):
+        rows = [
+            ["[WORKSHEET]"],
+            ["解析法", "懸滴法"],
+            ["繰り返し数", "3"],
+            ["", "1", "1", "1", "2", "2", "2", "3", "3", "3", "Avg.", "S.D."],
+            [
+                "時間(ms)",
+                "d(g/cm^3)",
+                "I.T.(mN/m)",
+                "V(uL)",
+                "d(g/cm^3)",
+                "I.T.(mN/m)",
+                "V(uL)",
+                "d(g/cm^3)",
+                "I.T.(mN/m)",
+                "V(uL)",
+                "I.T.(mN/m)",
+                "I.T.(mN/m)",
+            ],
+            ["0", "0.998", "70.0", "5.0", "0.998", "71.0", "5.1", "0.998", "72.0", "5.2", "99.0", "1.0"],
+            ["1000", "0.998", "70.2", "5.0", "0.998", "71.2", "5.1", "0.998", "72.2", "5.2", "99.0", "1.0"],
+            ["2000", "0.998", "70.4", "5.0", "0.998", "71.4", "5.1", "0.998", "72.4", "5.2", "99.0", "1.0"],
+        ]
+        content = "\n".join(",".join(row) for row in rows) + "\n"
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="shift_jis") as handle:
+            handle.write(content)
+            path = handle.name
+
+        try:
+            metadata = parse_famas_metadata(path)
+            self.assertEqual(metadata["sourceFormat"], "famas_multi_experiment_csv")
+            self.assertEqual(metadata["analysisMethod"], "懸滴法")
+            self.assertEqual(metadata["repeatCount"], 3)
+            self.assertAlmostEqual(metadata["densityDeltaGPerCm3"], 0.998)
+
+            payload = analyze_cmc_files(
+                entries=[{"path": path, "filename": "2mM.csv", "concentration": "2.0"}],
+                t_min_text="0",
+                t_max_text="2000",
+                c_unit="mM",
+                use_log=False,
+            )
+
+            self.assertEqual(payload["points"][0]["dropletCount"], 3)
+            self.assertAlmostEqual(payload["points"][0]["y"], 71.2)
+            file_info = payload["files"][0]
+            self.assertEqual(file_info["detectedDropletCount"], 3)
+            self.assertEqual(file_info["metadata"]["analysisMethod"], "懸滴法")
+            self.assertEqual(file_info["metadata"]["repeatCount"], 3)
+            self.assertAlmostEqual(file_info["metadata"]["densityDeltaGPerCm3"], 0.998)
+            self.assertEqual(
+                [droplet["sourceColumn"] for droplet in file_info["droplets"]],
+                ["I.T.(mN/m).1", "I.T.(mN/m).2", "I.T.(mN/m).3"],
+            )
+            self.assertTrue(all(droplet["hasVolume"] for droplet in file_info["droplets"]))
+            self.assertTrue(
+                all(droplet["densityDeltaGPerCm3"] == 0.998 for droplet in file_info["droplets"])
+            )
         finally:
             os.unlink(path)
 

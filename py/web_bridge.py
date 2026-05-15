@@ -5,12 +5,13 @@ from typing import Any
 import numpy as np
 
 from DataProcessor.services.cmc_analysis import (
-    compute_droplet_means,
+    extract_cmc_droplet_traces,
     infer_concentration_from_filename,
     summarize_droplet_means,
 )
 from DataProcessor.services.dataframe_loader import (
     load_plot_dataframe,
+    parse_famas_metadata,
     parse_famas_measurement_detail_volumes,
 )
 from DataProcessor.services.errors import DataProcessingError
@@ -33,6 +34,14 @@ def _finite_or_none(value: Any) -> float | int | str | None:
             return value
         return None
     return value
+
+
+def _payload_value(value: Any):
+    if isinstance(value, dict):
+        return {key: _payload_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_payload_value(item) for item in value]
+    return _finite_or_none(value)
 
 
 def _series_payload(x_values, y_values, experiment_indexes=None) -> list[dict[str, Any]]:
@@ -476,7 +485,21 @@ def analyze_cmc_files(
         # Reuse the same robust loader as the plot workflow so FAMAS-style CSVs
         # and encoded lab exports behave consistently across both tools.
         df = load_plot_dataframe(path)
-        droplet_means = compute_droplet_means(df, t_min=t_min, t_max=t_max)
+        metadata = {}
+        if path.lower().endswith(".csv"):
+            metadata = parse_famas_metadata(path)
+        if not metadata:
+            metadata = df.attrs.get("famasMetadata", {}) or {}
+        if not metadata:
+            metadata = {"sourceFormat": "generic_table"}
+
+        droplet_traces = extract_cmc_droplet_traces(df, metadata)
+        droplet_means = [
+            mean
+            for trace in droplet_traces
+            for mean in [trace.mean_in_window(t_min, t_max)]
+            if mean is not None
+        ]
         mean, std = summarize_droplet_means(droplet_means)
 
         rows.append(
@@ -487,6 +510,16 @@ def analyze_cmc_files(
                 "gammaMean": mean,
                 "gammaStd": std,
                 "dropletCount": len(droplet_means),
+                "file": {
+                    "filename": filename,
+                    "path": path,
+                    "metadata": _payload_value(metadata),
+                    "detectedDropletCount": len(droplet_traces),
+                    "droplets": [
+                        _payload_value(trace.to_payload())
+                        for trace in droplet_traces
+                    ],
+                },
             }
         )
 
@@ -530,6 +563,7 @@ def analyze_cmc_files(
             }
             for row in plot_rows
         ],
+        "files": [row["file"] for row in plot_rows],
         "summary": {
             "fileCount": len(plot_rows),
             "timeWindow": [_finite_or_none(t_min), _finite_or_none(t_max)],

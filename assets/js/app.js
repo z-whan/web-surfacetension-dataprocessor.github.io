@@ -187,13 +187,19 @@
         });
       }
 
+      const cmcOptions = {
+        plateauMode: "manual",
+        aggregationMethod: "mean",
+      };
+
       const payload = await pyodideClient.callBridge(
         "analyze_cmc_files",
         entries,
         dom.cmcTimeMin.value,
         dom.cmcTimeMax.value,
         dom.cmcUnit.value,
-        dom.cmcUseLog.checked
+        dom.cmcUseLog.checked,
+        cmcOptions
       );
 
       state.cmc.payload = payload;

@@ -8,6 +8,115 @@ import pandas as pd
 
 from DataProcessor.services.errors import DataProcessingError
 
+QC_NO_VALID_DATA = "NO_VALID_DATA"
+QC_NO_PLATEAU = "NO_PLATEAU"
+QC_HIGH_FINAL_DRIFT = "HIGH_FINAL_DRIFT"
+QC_HIGH_NOISE = "HIGH_NOISE"
+QC_HIGH_VOLUME_LOSS = "HIGH_VOLUME_LOSS"
+QC_OUTLIER_WITHIN_CONCENTRATION = "OUTLIER_WITHIN_CONCENTRATION"
+
+DEFAULT_CMC_QC_OPTIONS: dict[str, Any] = {
+    "plateauMode": "manual",
+    "minPlateauWindowMs": 5000.0,
+    "maxAbsSlopeMnMPerMin": 0.5,
+    "maxPlateauSdMnM": 0.5,
+    "maxVolumeLossPct": 10.0,
+    "aggregationMethod": "mean",
+}
+
+
+@dataclass
+class CmcDropletQc:
+    gamma_eq: float | None
+    gamma_sd: float | None
+    gamma_se: float | None
+    plateau_start_ms: float | None
+    plateau_end_ms: float | None
+    slope_mn_m_per_min: float | None
+    point_count: int
+    volume_start_ul: float | None
+    volume_end_ul: float | None
+    volume_loss_pct: float | None
+    flags: list[str]
+    used_for_aggregate: bool
+    exclude_reason: str | None
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "gammaEq": self.gamma_eq,
+            "gammaSd": self.gamma_sd,
+            "gammaSe": self.gamma_se,
+            "plateauStartMs": self.plateau_start_ms,
+            "plateauEndMs": self.plateau_end_ms,
+            "slopeMnMPerMin": self.slope_mn_m_per_min,
+            "pointCount": self.point_count,
+            "volumeStartUL": self.volume_start_ul,
+            "volumeEndUL": self.volume_end_ul,
+            "volumeLossPct": self.volume_loss_pct,
+            "flags": list(self.flags),
+            "usedForAggregate": self.used_for_aggregate,
+            "excludeReason": self.exclude_reason,
+        }
+
+
+@dataclass
+class CmcConcentrationAggregate:
+    gamma_mean: float | None
+    gamma_median: float | None
+    gamma_std: float | None
+    gamma_se: float | None
+    gamma_mad: float | None
+    droplet_count: int
+    used_droplet_count: int
+    aggregation_method: str
+    gamma_value: float | None
+    error_value: float | None
+    error_metric: str | None
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "gammaMean": self.gamma_mean,
+            "gammaMedian": self.gamma_median,
+            "gammaStd": self.gamma_std,
+            "gammaSe": self.gamma_se,
+            "gammaMad": self.gamma_mad,
+            "dropletCount": self.droplet_count,
+            "usedDropletCount": self.used_droplet_count,
+            "aggregationMethod": self.aggregation_method,
+            "gammaValue": self.gamma_value,
+            "errorValue": self.error_value,
+            "errorMetric": self.error_metric,
+        }
+
+
+def normalize_cmc_qc_options(options: dict[str, Any] | None = None) -> dict[str, Any]:
+    normalized = dict(DEFAULT_CMC_QC_OPTIONS)
+    if options:
+        normalized.update({key: value for key, value in options.items() if value is not None})
+
+    mode = str(normalized.get("plateauMode", "manual")).strip().lower()
+    normalized["plateauMode"] = mode if mode in ("manual", "auto") else "manual"
+
+    method = str(normalized.get("aggregationMethod", "mean")).strip().lower()
+    normalized["aggregationMethod"] = method if method in ("mean", "median") else "mean"
+
+    for key in (
+        "minPlateauWindowMs",
+        "maxAbsSlopeMnMPerMin",
+        "maxPlateauSdMnM",
+        "maxVolumeLossPct",
+    ):
+        try:
+            normalized[key] = float(normalized[key])
+        except (TypeError, ValueError):
+            normalized[key] = DEFAULT_CMC_QC_OPTIONS[key]
+
+    normalized["minPlateauWindowMs"] = max(0.0, float(normalized["minPlateauWindowMs"]))
+    normalized["maxAbsSlopeMnMPerMin"] = max(0.0, float(normalized["maxAbsSlopeMnMPerMin"]))
+    normalized["maxPlateauSdMnM"] = max(0.0, float(normalized["maxPlateauSdMnM"]))
+    normalized["maxVolumeLossPct"] = max(0.0, float(normalized["maxVolumeLossPct"]))
+    return normalized
+
 
 @dataclass
 class CmcDropletTrace:
@@ -287,6 +396,249 @@ def extract_cmc_droplet_traces(
         if traces:
             return traces
     return _extract_time_reset_droplet_traces(df, metadata)
+
+
+def _append_flag(flags: list[str], flag: str) -> None:
+    if flag not in flags:
+        flags.append(flag)
+
+
+def _finite_values(values: np.ndarray) -> np.ndarray:
+    return values[np.isfinite(values)]
+
+
+def _window_volume_values(trace: CmcDropletTrace, mask: np.ndarray) -> tuple[float | None, float | None, float | None]:
+    if trace.volume is None:
+        return None, None, None
+
+    volumes = _finite_values(trace.volume[mask])
+    if volumes.size == 0:
+        return None, None, None
+
+    start = float(volumes[0])
+    end = float(volumes[-1])
+    loss_pct = None
+    if start > 0:
+        loss_pct = float(max(0.0, (start - end) / start * 100.0))
+    return start, end, loss_pct
+
+
+def _fit_window_qc(
+    trace: CmcDropletTrace,
+    mask: np.ndarray,
+    options: dict[str, Any],
+) -> CmcDropletQc:
+    time = trace.time[mask]
+    gamma = trace.gamma[mask]
+    point_count = int(gamma.size)
+
+    if point_count == 0:
+        return CmcDropletQc(
+            gamma_eq=None,
+            gamma_sd=None,
+            gamma_se=None,
+            plateau_start_ms=None,
+            plateau_end_ms=None,
+            slope_mn_m_per_min=None,
+            point_count=0,
+            volume_start_ul=None,
+            volume_end_ul=None,
+            volume_loss_pct=None,
+            flags=[QC_NO_VALID_DATA],
+            used_for_aggregate=False,
+            exclude_reason=QC_NO_VALID_DATA,
+        )
+
+    gamma_eq = float(gamma.mean())
+    gamma_sd = float(gamma.std(ddof=1)) if point_count > 1 else 0.0
+    gamma_se = float(gamma_sd / np.sqrt(point_count)) if point_count > 0 else None
+
+    slope = 0.0
+    if point_count > 1 and float(np.nanmax(time) - np.nanmin(time)) > 0:
+        time_min = time / 60000.0
+        slope = float(np.polyfit(time_min, gamma, 1)[0])
+
+    volume_start, volume_end, volume_loss = _window_volume_values(trace, mask)
+    flags: list[str] = []
+    if abs(slope) > float(options["maxAbsSlopeMnMPerMin"]):
+        _append_flag(flags, QC_HIGH_FINAL_DRIFT)
+    if gamma_sd > float(options["maxPlateauSdMnM"]):
+        _append_flag(flags, QC_HIGH_NOISE)
+    if volume_loss is not None and volume_loss > float(options["maxVolumeLossPct"]):
+        _append_flag(flags, QC_HIGH_VOLUME_LOSS)
+
+    return CmcDropletQc(
+        gamma_eq=gamma_eq,
+        gamma_sd=gamma_sd,
+        gamma_se=gamma_se,
+        plateau_start_ms=float(np.nanmin(time)),
+        plateau_end_ms=float(np.nanmax(time)),
+        slope_mn_m_per_min=slope,
+        point_count=point_count,
+        volume_start_ul=volume_start,
+        volume_end_ul=volume_end,
+        volume_loss_pct=volume_loss,
+        flags=flags,
+        used_for_aggregate=True,
+        exclude_reason=None,
+    )
+
+
+def compute_droplet_plateau_qc(
+    trace: CmcDropletTrace,
+    *,
+    mode: str = "manual",
+    t_min: float | None = None,
+    t_max: float | None = None,
+    options: dict[str, Any] | None = None,
+) -> CmcDropletQc:
+    qc_options = normalize_cmc_qc_options(options)
+    mode = str(mode or qc_options["plateauMode"]).strip().lower()
+
+    valid_mask = np.isfinite(trace.time) & np.isfinite(trace.gamma)
+    if not valid_mask.any():
+        return CmcDropletQc(
+            gamma_eq=None,
+            gamma_sd=None,
+            gamma_se=None,
+            plateau_start_ms=None,
+            plateau_end_ms=None,
+            slope_mn_m_per_min=None,
+            point_count=0,
+            volume_start_ul=None,
+            volume_end_ul=None,
+            volume_loss_pct=None,
+            flags=[QC_NO_VALID_DATA],
+            used_for_aggregate=False,
+            exclude_reason=QC_NO_VALID_DATA,
+        )
+
+    if mode == "manual":
+        if t_min is None or t_max is None:
+            raise DataProcessingError("Manual plateau mode requires t_min and t_max.")
+        mask = valid_mask & (trace.time >= t_min) & (trace.time <= t_max)
+        qc = _fit_window_qc(trace, mask, qc_options)
+        if qc.point_count == 0:
+            qc.flags = [QC_NO_VALID_DATA]
+            qc.exclude_reason = QC_NO_VALID_DATA
+            qc.used_for_aggregate = False
+        return qc
+
+    min_window_ms = float(qc_options["minPlateauWindowMs"])
+    valid_indexes = np.flatnonzero(valid_mask)
+    candidates: list[tuple[float, float, int, CmcDropletQc]] = []
+
+    for start_pos, start_idx in enumerate(valid_indexes):
+        for end_idx in valid_indexes[start_pos + 1 :]:
+            duration = float(trace.time[end_idx] - trace.time[start_idx])
+            if duration < min_window_ms:
+                continue
+            mask = np.zeros_like(valid_mask, dtype=bool)
+            mask[start_idx : end_idx + 1] = valid_mask[start_idx : end_idx + 1]
+            qc = _fit_window_qc(trace, mask, qc_options)
+            if qc.point_count < 2:
+                continue
+
+            slope_score = abs(qc.slope_mn_m_per_min or 0.0) / max(float(qc_options["maxAbsSlopeMnMPerMin"]), 1e-9)
+            noise_score = (qc.gamma_sd or 0.0) / max(float(qc_options["maxPlateauSdMnM"]), 1e-9)
+            end_score = -float(qc.plateau_end_ms or 0.0) / 1_000_000.0
+            width_score = -duration / 10_000_000.0
+            score = slope_score * 2.0 + noise_score + end_score + width_score
+            candidates.append((score, -float(qc.plateau_end_ms or 0.0), -qc.point_count, qc))
+
+    if not candidates:
+        return CmcDropletQc(
+            gamma_eq=None,
+            gamma_sd=None,
+            gamma_se=None,
+            plateau_start_ms=None,
+            plateau_end_ms=None,
+            slope_mn_m_per_min=None,
+            point_count=0,
+            volume_start_ul=None,
+            volume_end_ul=None,
+            volume_loss_pct=None,
+            flags=[QC_NO_PLATEAU],
+            used_for_aggregate=False,
+            exclude_reason=QC_NO_PLATEAU,
+        )
+
+    candidates.sort(key=lambda item: (item[0], item[1], item[2]))
+    return candidates[0][3]
+
+
+def mark_outliers_within_concentration(qc_results: Sequence[CmcDropletQc]) -> None:
+    used_values = np.asarray(
+        [
+            qc.gamma_eq
+            for qc in qc_results
+            if qc.used_for_aggregate and qc.gamma_eq is not None and np.isfinite(qc.gamma_eq)
+        ],
+        dtype=float,
+    )
+    if used_values.size < 3:
+        return
+
+    median = float(np.median(used_values))
+    mad = float(np.median(np.abs(used_values - median)))
+    if mad > 0:
+        threshold = 3.5 * 1.4826 * mad
+    else:
+        std = float(used_values.std(ddof=1)) if used_values.size > 1 else 0.0
+        threshold = 3.0 * std
+
+    if threshold <= 0:
+        return
+
+    for qc in qc_results:
+        if qc.gamma_eq is None or not np.isfinite(qc.gamma_eq):
+            continue
+        if abs(float(qc.gamma_eq) - median) > threshold:
+            _append_flag(qc.flags, QC_OUTLIER_WITHIN_CONCENTRATION)
+
+
+def aggregate_cmc_qc_results(
+    qc_results: Sequence[CmcDropletQc],
+    *,
+    aggregation_method: str = "mean",
+) -> CmcConcentrationAggregate:
+    values = np.asarray(
+        [
+            qc.gamma_eq
+            for qc in qc_results
+            if qc.used_for_aggregate and qc.gamma_eq is not None and np.isfinite(qc.gamma_eq)
+        ],
+        dtype=float,
+    )
+    method = aggregation_method if aggregation_method in ("mean", "median") else "mean"
+    droplet_count = len(qc_results)
+    used_count = int(values.size)
+    if used_count == 0:
+        raise DataProcessingError("No valid droplet data in the requested time range.")
+
+    gamma_mean = float(values.mean())
+    gamma_median = float(np.median(values))
+    gamma_std = float(values.std(ddof=1)) if used_count > 1 else 0.0
+    gamma_se = float(gamma_std / np.sqrt(used_count)) if used_count > 0 else None
+    gamma_mad = float(np.median(np.abs(values - gamma_median)))
+    gamma_value = gamma_median if method == "median" else gamma_mean
+
+    error_value = gamma_se if gamma_se is not None else gamma_std
+    error_metric = "gammaSe" if gamma_se is not None else "gammaStd"
+
+    return CmcConcentrationAggregate(
+        gamma_mean=gamma_mean,
+        gamma_median=gamma_median,
+        gamma_std=gamma_std,
+        gamma_se=gamma_se,
+        gamma_mad=gamma_mad,
+        droplet_count=droplet_count,
+        used_droplet_count=used_count,
+        aggregation_method=method,
+        gamma_value=gamma_value,
+        error_value=error_value,
+        error_metric=error_metric,
+    )
 
 
 def compute_droplet_means(df: pd.DataFrame, t_min: float, t_max: float) -> list[float]:

@@ -103,6 +103,36 @@ class WebBridgeTests(unittest.TestCase):
             handle.write(content)
             return handle.name
 
+    def _write_cmc_famas_csv(self, gamma_traces, volume_traces=None) -> str:
+        time_values = [idx * 1000 for idx in range(len(gamma_traces[0]))]
+        volume_traces = volume_traces or [
+            [10.0 for _ in time_values]
+            for _ in gamma_traces
+        ]
+        prefix = [""]
+        header = ["時間(ms)"]
+        for exp_index in range(1, len(gamma_traces) + 1):
+            prefix.extend([str(exp_index), str(exp_index)])
+            header.extend(["I.T.(mN/m)", "V(uL)"])
+        prefix.append("Avg.")
+        header.append("I.T.(mN/m)")
+
+        rows = [["[WORKSHEET]"], ["解析法", "懸滴法"], ["繰り返し数", str(len(gamma_traces))], prefix, header]
+        for row_index, time_value in enumerate(time_values):
+            row = [str(time_value)]
+            gamma_values = []
+            for gamma_trace, volume_trace in zip(gamma_traces, volume_traces):
+                row.append(str(gamma_trace[row_index]))
+                row.append(str(volume_trace[row_index]))
+                gamma_values.append(float(gamma_trace[row_index]))
+            row.append(str(sum(gamma_values) / len(gamma_values)))
+            rows.append(row)
+
+        content = "\n".join(",".join(row) for row in rows) + "\n"
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="shift_jis") as handle:
+            handle.write(content)
+            return handle.name
+
     def test_infer_concentration(self):
         result = infer_concentration("sample-12.5mM.csv")
         self.assertEqual(result["value"], 12.5)
@@ -427,6 +457,116 @@ class WebBridgeTests(unittest.TestCase):
             self.assertTrue(all(droplet["hasVolume"] for droplet in file_info["droplets"]))
             self.assertTrue(
                 all(droplet["densityDeltaGPerCm3"] == 0.998 for droplet in file_info["droplets"])
+            )
+        finally:
+            os.unlink(path)
+
+    def test_analyze_cmc_files_auto_plateau_returns_three_droplets(self):
+        path = self._write_cmc_famas_csv([
+            [73, 72, 71, 70.2, 70.1, 70.0, 70.0, 70.0, 70.0, 70.1, 70.0],
+            [74, 73, 72, 71.2, 71.1, 71.0, 71.0, 71.0, 71.0, 71.1, 71.0],
+            [75, 74, 73, 72.2, 72.1, 72.0, 72.0, 72.0, 72.0, 72.1, 72.0],
+        ])
+
+        try:
+            payload = analyze_cmc_files(
+                entries=[{"path": path, "filename": "3mM.csv", "concentration": "3.0"}],
+                t_min_text="0",
+                t_max_text="10000",
+                c_unit="mM",
+                use_log=False,
+                options={"plateauMode": "auto", "minPlateauWindowMs": 4000},
+            )
+            file_info = payload["files"][0]
+            self.assertEqual(file_info["detectedDropletCount"], 3)
+            self.assertEqual(payload["rows"][0]["dropletCount"], 3)
+            self.assertEqual(payload["rows"][0]["usedDropletCount"], 3)
+            self.assertTrue(all(droplet["qc"]["usedForAggregate"] for droplet in file_info["droplets"]))
+            self.assertTrue(all(droplet["qc"]["plateauStartMs"] >= 3000 for droplet in file_info["droplets"]))
+        finally:
+            os.unlink(path)
+
+    def test_analyze_cmc_files_auto_flags_high_final_drift(self):
+        path = self._write_cmc_famas_csv([
+            [70.0 + idx * 0.1 for idx in range(11)],
+            [71.0 for _ in range(11)],
+            [72.0 for _ in range(11)],
+        ])
+
+        try:
+            payload = analyze_cmc_files(
+                entries=[{"path": path, "filename": "4mM.csv", "concentration": "4.0"}],
+                t_min_text="0",
+                t_max_text="10000",
+                c_unit="mM",
+                use_log=False,
+                options={
+                    "plateauMode": "auto",
+                    "minPlateauWindowMs": 4000,
+                    "maxAbsSlopeMnMPerMin": 0.5,
+                },
+            )
+            flags = payload["files"][0]["droplets"][0]["qc"]["flags"]
+            self.assertIn("HIGH_FINAL_DRIFT", flags)
+            self.assertTrue(payload["files"][0]["droplets"][0]["qc"]["usedForAggregate"])
+        finally:
+            os.unlink(path)
+
+    def test_analyze_cmc_files_auto_flags_high_volume_loss(self):
+        path = self._write_cmc_famas_csv(
+            [
+                [70.0 for _ in range(11)],
+                [71.0 for _ in range(11)],
+                [72.0 for _ in range(11)],
+            ],
+            volume_traces=[
+                [10.0 - idx * 0.3 for idx in range(11)],
+                [10.0 for _ in range(11)],
+                [10.0 for _ in range(11)],
+            ],
+        )
+
+        try:
+            payload = analyze_cmc_files(
+                entries=[{"path": path, "filename": "5mM.csv", "concentration": "5.0"}],
+                t_min_text="0",
+                t_max_text="10000",
+                c_unit="mM",
+                use_log=False,
+                options={
+                    "plateauMode": "auto",
+                    "minPlateauWindowMs": 4000,
+                    "maxVolumeLossPct": 10,
+                },
+            )
+            qc = payload["files"][0]["droplets"][0]["qc"]
+            self.assertIn("HIGH_VOLUME_LOSS", qc["flags"])
+            self.assertGreater(qc["volumeLossPct"], 10)
+            self.assertTrue(qc["usedForAggregate"])
+        finally:
+            os.unlink(path)
+
+    def test_analyze_cmc_files_manual_mode_keeps_old_time_window_behavior(self):
+        content = "Time (ms),I.T.(mN/m)\n0,10\n10,12\n20,14\n0,11\n10,13\n20,15\n"
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8") as handle:
+            handle.write(content)
+            path = handle.name
+
+        try:
+            payload = analyze_cmc_files(
+                entries=[{"path": path, "filename": "1mM.csv", "concentration": "1.0"}],
+                t_min_text="5",
+                t_max_text="15",
+                c_unit="mM",
+                use_log=False,
+                options={"plateauMode": "manual"},
+            )
+            self.assertEqual(payload["summary"]["plateauMode"], "manual")
+            self.assertEqual(payload["rows"][0]["usedDropletCount"], 2)
+            self.assertEqual(payload["points"][0]["y"], 12.5)
+            self.assertEqual(
+                [droplet["qc"]["gammaEq"] for droplet in payload["files"][0]["droplets"]],
+                [12.0, 13.0],
             )
         finally:
             os.unlink(path)

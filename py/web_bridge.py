@@ -5,9 +5,12 @@ from typing import Any
 import numpy as np
 
 from DataProcessor.services.cmc_analysis import (
+    aggregate_cmc_qc_results,
+    compute_droplet_plateau_qc,
     extract_cmc_droplet_traces,
     infer_concentration_from_filename,
-    summarize_droplet_means,
+    mark_outliers_within_concentration,
+    normalize_cmc_qc_options,
 )
 from DataProcessor.services.dataframe_loader import (
     load_plot_dataframe,
@@ -446,6 +449,7 @@ def analyze_cmc_files(
     t_max_text: str,
     c_unit: str,
     use_log: bool,
+    options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not entries:
         raise DataProcessingError("Please choose at least one file.")
@@ -459,6 +463,7 @@ def analyze_cmc_files(
     if t_min >= t_max:
         raise DataProcessingError("Please ensure t_min < t_max.")
 
+    qc_options = normalize_cmc_qc_options(options)
     rows: list[dict[str, Any]] = []
     for entry in entries:
         path = str(entry.get("path", "")).strip()
@@ -494,30 +499,54 @@ def analyze_cmc_files(
             metadata = {"sourceFormat": "generic_table"}
 
         droplet_traces = extract_cmc_droplet_traces(df, metadata)
-        droplet_means = [
-            mean
+        droplet_qc = [
+            compute_droplet_plateau_qc(
+                trace,
+                mode=qc_options["plateauMode"],
+                t_min=t_min,
+                t_max=t_max,
+                options=qc_options,
+            )
             for trace in droplet_traces
-            for mean in [trace.mean_in_window(t_min, t_max)]
-            if mean is not None
         ]
-        mean, std = summarize_droplet_means(droplet_means)
+        mark_outliers_within_concentration(droplet_qc)
+        aggregate = aggregate_cmc_qc_results(
+            droplet_qc,
+            aggregation_method=str(qc_options["aggregationMethod"]),
+        )
+        aggregate_payload = aggregate.to_payload()
 
         rows.append(
             {
                 "filename": filename,
                 "path": path,
                 "concentration": concentration,
-                "gammaMean": mean,
-                "gammaStd": std,
-                "dropletCount": len(droplet_means),
+                "gammaMean": aggregate.gamma_mean,
+                "gammaMedian": aggregate.gamma_median,
+                "gammaStd": aggregate.gamma_std,
+                "gammaSe": aggregate.gamma_se,
+                "gammaMad": aggregate.gamma_mad,
+                "gammaValue": aggregate.gamma_value,
+                "gammaError": aggregate.error_value,
+                "gammaErrorMetric": aggregate.error_metric,
+                "dropletCount": aggregate.droplet_count,
+                "usedDropletCount": aggregate.used_droplet_count,
+                "aggregationMethod": aggregate.aggregation_method,
+                "usedForAggregate": aggregate.used_droplet_count > 0,
                 "file": {
                     "filename": filename,
                     "path": path,
                     "metadata": _payload_value(metadata),
                     "detectedDropletCount": len(droplet_traces),
+                    "aggregate": _payload_value(aggregate_payload),
                     "droplets": [
-                        _payload_value(trace.to_payload())
-                        for trace in droplet_traces
+                        _payload_value({
+                            **trace.to_payload(),
+                            "qc": qc.to_payload(),
+                            "usedForAggregate": qc.used_for_aggregate,
+                            "excludeReason": qc.exclude_reason,
+                        })
+                        for trace, qc in zip(droplet_traces, droplet_qc)
                     ],
                 },
             }
@@ -545,11 +574,14 @@ def analyze_cmc_files(
         "points": [
             {
                 "x": _finite_or_none(x_sorted[idx]),
-                "y": _finite_or_none(plot_rows[idx]["gammaMean"]),
-                "error": _finite_or_none(plot_rows[idx]["gammaStd"]),
+                "y": _finite_or_none(plot_rows[idx]["gammaValue"]),
+                "error": _finite_or_none(plot_rows[idx]["gammaError"]),
+                "errorMetric": plot_rows[idx]["gammaErrorMetric"],
                 "filename": plot_rows[idx]["filename"],
                 "concentration": _finite_or_none(plot_rows[idx]["concentration"]),
                 "dropletCount": int(plot_rows[idx]["dropletCount"]),
+                "usedDropletCount": int(plot_rows[idx]["usedDropletCount"]),
+                "aggregationMethod": plot_rows[idx]["aggregationMethod"],
             }
             for idx in range(len(plot_rows))
         ],
@@ -558,8 +590,17 @@ def analyze_cmc_files(
                 "filename": row["filename"],
                 "concentration": _finite_or_none(row["concentration"]),
                 "gammaMean": _finite_or_none(row["gammaMean"]),
+                "gammaMedian": _finite_or_none(row["gammaMedian"]),
                 "gammaStd": _finite_or_none(row["gammaStd"]),
+                "gammaSe": _finite_or_none(row["gammaSe"]),
+                "gammaMad": _finite_or_none(row["gammaMad"]),
+                "gammaValue": _finite_or_none(row["gammaValue"]),
+                "gammaError": _finite_or_none(row["gammaError"]),
+                "gammaErrorMetric": row["gammaErrorMetric"],
                 "dropletCount": int(row["dropletCount"]),
+                "usedDropletCount": int(row["usedDropletCount"]),
+                "aggregationMethod": row["aggregationMethod"],
+                "usedForAggregate": bool(row["usedForAggregate"]),
             }
             for row in plot_rows
         ],
@@ -567,5 +608,7 @@ def analyze_cmc_files(
         "summary": {
             "fileCount": len(plot_rows),
             "timeWindow": [_finite_or_none(t_min), _finite_or_none(t_max)],
+            "plateauMode": qc_options["plateauMode"],
+            "aggregationMethod": qc_options["aggregationMethod"],
         },
     }

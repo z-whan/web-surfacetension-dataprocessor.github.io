@@ -22,6 +22,11 @@ assert.strictEqual(cancelRows.length, 2, "cancel selection should not clear rows
 const clearedRows = [];
 assert.strictEqual(clearedRows.length, 0, "clear files is the explicit empty state");
 
+rows[0].concentration = "10";
+rows[1].concentration = "1";
+const sortedRows = workflow.sortRowsByConcentration(rows, "asc");
+assert.deepStrictEqual(sortedRows.map((row) => row.filename), ["b.csv", "a.csv"]);
+
 const reviewOptions = {
   plateauMode: "auto",
   minPlateauWindowMs: "5000",
@@ -97,5 +102,10 @@ assert.strictEqual(droplet.qc.flags[0], "HIGH_FINAL_DRIFT");
 assert.strictEqual(workflow.flagLabel("HIGH_FINAL_DRIFT"), "DRIFT");
 assert.strictEqual(workflow.flagLabel("HIGH_VOLUME_LOSS"), "EVAP");
 assert(workflow.flagTitle("HIGH_FINAL_DRIFT", droplet.qc, reviewOptions).includes("threshold"));
+assert(workflow.flagTitle("HIGH_EVAPORATION", {
+  fullEvaporationRatePctPerMin: 0.8,
+}, {
+  maxEvaporationRatePctPerMin: 0.5,
+}).includes("%/min"));
 
 console.log("cmc workflow tests passed");

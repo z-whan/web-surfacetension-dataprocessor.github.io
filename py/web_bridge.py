@@ -684,6 +684,7 @@ def build_cmc_plot_payload_from_review(
     concentration_map = _review_concentration_map(plot_options)
 
     rows: list[dict[str, Any]] = []
+    skipped_files: list[dict[str, Any]] = []
     files = list(review_payload.get("files") or [])
     for file_index, file_payload in enumerate(files):
         filename = str(file_payload.get("filename", "")).strip()
@@ -691,7 +692,16 @@ def build_cmc_plot_payload_from_review(
         concentration = _concentration_for_file(file_payload, file_index, concentration_map)
         droplets = list(file_payload.get("droplets") or [])
         qc_payloads = [droplet.get("qc") or {} for droplet in droplets]
-        aggregate = _aggregate_qc_payloads(qc_payloads, str(qc_options["aggregationMethod"]))
+        try:
+            aggregate = _aggregate_qc_payloads(qc_payloads, str(qc_options["aggregationMethod"]))
+        except DataProcessingError:
+            skipped_files.append({
+                "filename": filename,
+                "path": path,
+                "concentration": concentration,
+                "reason": "No droplets are currently marked Used for aggregation.",
+            })
+            continue
         warning_count = sum(1 for qc in qc_payloads if qc.get("flags"))
         file_with_aggregate = {
             **file_payload,
@@ -725,6 +735,13 @@ def build_cmc_plot_payload_from_review(
             "warningCount": warning_count,
             "file": file_with_aggregate,
         })
+
+    if not rows:
+        skipped_names = ", ".join(item["filename"] or item["path"] for item in skipped_files)
+        raise DataProcessingError(
+            "No CMC plot points could be generated. "
+            f"No droplets are marked Used in: {skipped_names or 'all files'}."
+        )
 
     c_arr = np.asarray([row["concentration"] for row in rows], dtype=float)
     if use_log:
@@ -802,6 +819,17 @@ def build_cmc_plot_payload_from_review(
     else:
         fit_payload = fit_cmc_curve(point_payload, fit_options)
 
+    warnings = []
+    if skipped_files:
+        warnings.append({
+            "code": "FILES_SKIPPED_NO_USED_DROPLETS",
+            "message": "Files without any Used droplets were skipped for CMC plotting.",
+            "files": skipped_files,
+        })
+        if isinstance(fit_payload, dict):
+            fit_payload.setdefault("warnings", [])
+            fit_payload["warnings"].extend(warnings)
+
     return {
         "xLabel": x_label,
         "useLog": bool(use_log),
@@ -810,8 +838,11 @@ def build_cmc_plot_payload_from_review(
         "files": [row["file"] for row in plot_rows],
         "fit": _payload_value(fit_payload),
         "options": _payload_value(qc_options),
+        "warnings": _payload_value(warnings),
+        "skippedFiles": _payload_value(skipped_files),
         "summary": {
             "fileCount": len(plot_rows),
+            "skippedFileCount": len(skipped_files),
             "timeWindow": (review_payload.get("summary") or {}).get("timeWindow"),
             "plateauMode": qc_options["plateauMode"],
             "aggregationMethod": qc_options["aggregationMethod"],

@@ -17,6 +17,7 @@
       reviewCacheKey: null,
       reviewDirty: true,
       plotDirty: true,
+      fileSort: { key: null, direction: "asc" },
     },
   };
 
@@ -24,6 +25,7 @@
     statusText: document.querySelector("[data-status-text]"),
     runtimeTag: document.querySelector("[data-runtime-tag]"),
     errorBox: document.querySelector("[data-error-box]"),
+    errorTitle: document.querySelector("[data-error-box] strong"),
     errorText: document.querySelector("[data-error-text]"),
     actionButtons: Array.from(document.querySelectorAll("[data-requires-runtime='true']")),
     runtimeRetry: document.querySelector("#runtime-retry"),
@@ -46,7 +48,7 @@
     cmcMinPlateauWindow: document.querySelector("#cmc-min-plateau-window"),
     cmcMaxSlope: document.querySelector("#cmc-max-slope"),
     cmcMaxSd: document.querySelector("#cmc-max-sd"),
-    cmcMaxVolumeLoss: document.querySelector("#cmc-max-volume-loss"),
+    cmcMaxEvaporationRate: document.querySelector("#cmc-max-evaporation-rate"),
     cmcPerformancePreset: document.querySelector("#cmc-performance-preset"),
     cmcAggregationMethod: document.querySelector("#cmc-aggregation-method"),
     cmcFitModel: document.querySelector("#cmc-fit-model"),
@@ -89,11 +91,21 @@
   }
 
   function showError(message) {
+    dom.errorBox.dataset.severity = "error";
+    dom.errorTitle.textContent = "Runtime / Analysis Error";
+    dom.errorText.textContent = message;
+    dom.errorBox.hidden = false;
+  }
+
+  function showWarning(message) {
+    dom.errorBox.dataset.severity = "warning";
+    dom.errorTitle.textContent = "CMC Notice";
     dom.errorText.textContent = message;
     dom.errorBox.hidden = false;
   }
 
   function clearError() {
+    dom.errorBox.dataset.severity = "";
     dom.errorText.textContent = "";
     dom.errorBox.hidden = true;
   }
@@ -205,8 +217,8 @@
       plateauSearchStrideMs: preset.plateauSearchStrideMs,
       maxAbsSlopeMnMPerMin: dom.cmcMaxSlope.value,
       maxPlateauSdMnM: dom.cmcMaxSd.value,
-      maxVolumeLossPct: dom.cmcMaxVolumeLoss.value,
-      maxEvaporationRatePctPerMin: "0.5",
+      maxVolumeLossPct: "100",
+      maxEvaporationRatePctPerMin: dom.cmcMaxEvaporationRate.value,
     };
     const densityText = dom.cmcDensityOverride.value.trim();
     if (densityText) {
@@ -334,6 +346,32 @@
     return state.cmc.plotPayload || applyCurrentUsedOverrides();
   }
 
+  function plotWarningText(payload) {
+    const skipped = payload && Array.isArray(payload.skippedFiles) ? payload.skippedFiles : [];
+    if (!skipped.length) {
+      return "";
+    }
+    const names = skipped.map((item) => item.filename || item.path || "unknown file").join(", ");
+    return "Some files were skipped because no droplets are marked Used: " + names;
+  }
+
+  function sortCmcRowsByConcentration() {
+    const current = state.cmc.fileSort;
+    const direction = current.key === "concentration" && current.direction === "asc" ? "desc" : "asc";
+    state.cmc.rows = cmcWorkflow.sortRowsByConcentration(state.cmc.rows, direction);
+    state.cmc.fileSort = { key: "concentration", direction };
+    if (state.cmc.reviewPayload && Array.isArray(state.cmc.reviewPayload.files)) {
+      const byFilename = new Map(state.cmc.reviewPayload.files.map((file) => [file.filename, file]));
+      state.cmc.reviewPayload.files = state.cmc.rows
+        .map((row) => byFilename.get(row.filename))
+        .filter(Boolean);
+    }
+    markCmcPlotDirty();
+    renderCmcTable();
+    renderCmcDropletReview(applyCurrentUsedOverrides());
+    rebuildCmcPlotIfReady();
+  }
+
   function syncCmcModeFields() {
     const isAuto = dom.cmcEquilibriumMode.value === "auto";
     dom.cmcManualFields.hidden = isAuto;
@@ -410,6 +448,12 @@
   }
 
   function renderCmcDropletReview(payload) {
+    const openByKey = new Map(
+      Array.from(dom.cmcDropletReview.querySelectorAll("[data-cmc-review-file-key]")).map((details) => [
+        details.dataset.cmcReviewFileKey,
+        details.open,
+      ])
+    );
     domUtils.clear(dom.cmcDropletReview);
     const files = payload && Array.isArray(payload.files) ? payload.files : [];
     dom.cmcDropletEmpty.hidden = files.length > 0;
@@ -420,9 +464,13 @@
     files.forEach((file, displayFileIndex) => {
       const fileIndex = state.cmc.rows.findIndex((row) => row.filename === file.filename);
       const rowIndex = fileIndex >= 0 ? fileIndex : displayFileIndex;
+      const row = state.cmc.rows[rowIndex] || {};
+      const reviewFileKey = row.fileKey || file.filename || String(displayFileIndex);
+      const hasOpenState = openByKey.has(reviewFileKey);
       const details = domUtils.el("details", {
         className: "cmc-review-file",
-        props: { open: displayFileIndex === 0 },
+        attrs: { "data-cmc-review-file-key": reviewFileKey },
+        props: { open: hasOpenState ? openByKey.get(reviewFileKey) : displayFileIndex === 0 },
       });
       const accepted = (file.droplets || []).filter((droplet) => effectiveUsedForDroplet(rowIndex, droplet)).length;
       details.appendChild(domUtils.el("summary", {
@@ -613,7 +661,15 @@
     renderCmcSummary(plotPayload);
     renderCmcTable();
     renderCmcDropletReview(plotPayload);
-    setStatus("Plotted/Fitted CMC from cached droplet QC.");
+    const warningText = plotWarningText(plotPayload);
+    if (warningText) {
+      showWarning(warningText);
+    }
+    setStatus(
+      warningText
+        ? "Plotted/Fitted CMC from cached QC; some files were skipped."
+        : "Plotted/Fitted CMC from cached droplet QC."
+    );
     return plotPayload;
   }
 
@@ -754,6 +810,12 @@
     });
 
     dom.cmcTableBody.addEventListener("click", (event) => {
+      const sortButton = event.target.closest("[data-cmc-sort]");
+      if (sortButton && sortButton.dataset.cmcSort === "concentration") {
+        sortCmcRowsByConcentration();
+        return;
+      }
+
       const button = event.target.closest("[data-cmc-remove-index]");
       if (!button) {
         return;
@@ -822,6 +884,10 @@
   function bindActions() {
     dom.cmcInput.accept = config.ACCEPTED_DATA_EXTENSIONS;
     dom.cmcInput.addEventListener("change", handleCmcSelection);
+    const concentrationSortButton = document.querySelector("[data-cmc-sort='concentration']");
+    if (concentrationSortButton) {
+      concentrationSortButton.addEventListener("click", sortCmcRowsByConcentration);
+    }
     dom.cmcEquilibriumMode.addEventListener("change", () => {
       syncCmcModeFields();
       markCmcReviewDirty();
@@ -832,7 +898,7 @@
       dom.cmcMinPlateauWindow,
       dom.cmcMaxSlope,
       dom.cmcMaxSd,
-      dom.cmcMaxVolumeLoss,
+      dom.cmcMaxEvaporationRate,
       dom.cmcDensityOverride,
       dom.cmcPerformancePreset,
     ].forEach((element) => {

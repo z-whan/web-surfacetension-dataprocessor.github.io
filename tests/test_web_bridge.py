@@ -1024,6 +1024,43 @@ class WebBridgeTests(unittest.TestCase):
         self.assertIn("sigmaValue", payload_linear["rows"][0])
         self.assertIn("sigmaError", payload_linear["points"][0])
 
+    def test_build_cmc_plot_payload_skips_files_without_used_droplets(self):
+        review = {
+            "files": [
+                {
+                    "filename": "good.csv",
+                    "path": "/tmp/good.csv",
+                    "metadata": {},
+                    "droplets": [
+                        {"dropletIndex": 1, "qc": {"gammaEq": 70.0, "usedForAggregate": True, "flags": []}},
+                    ],
+                },
+                {
+                    "filename": "bad.csv",
+                    "path": "/tmp/bad.csv",
+                    "metadata": {},
+                    "droplets": [
+                        {"dropletIndex": 1, "qc": {"gammaEq": 80.0, "usedForAggregate": False, "flags": ["HIGH_NOISE"]}},
+                    ],
+                },
+            ],
+            "options": {"fitModel": "none", "aggregationMethod": "mean"},
+            "summary": {"timeWindow": [0, 10000], "plateauMode": "manual"},
+        }
+
+        payload = build_cmc_plot_payload_from_review(review, {
+            "concentrations": [
+                {"filename": "good.csv", "path": "/tmp/good.csv", "concentration": "1"},
+                {"filename": "bad.csv", "path": "/tmp/bad.csv", "concentration": "2"},
+            ],
+            "useLog": False,
+        })
+
+        self.assertEqual([row["filename"] for row in payload["rows"]], ["good.csv"])
+        self.assertEqual(payload["summary"]["skippedFileCount"], 1)
+        self.assertEqual(payload["skippedFiles"][0]["filename"], "bad.csv")
+        self.assertEqual(payload["warnings"][0]["code"], "FILES_SKIPPED_NO_USED_DROPLETS")
+
     def test_extract_plot_trend(self):
         content = "Time (ms),I.T.(mN/m).1\n0,0\n1,1\n2,2\n3,3\n4,4\n5,5\n"
         with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8") as handle:

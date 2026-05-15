@@ -144,6 +144,23 @@
     return cloned;
   }
 
+  function sortRowsByConcentration(rows, direction) {
+    const dir = direction === "desc" ? "desc" : "asc";
+    return rows.slice().sort((left, right) => {
+      const a = Number(left.concentration);
+      const b = Number(right.concentration);
+      const aValid = Number.isFinite(a);
+      const bValid = Number.isFinite(b);
+      if (aValid && bValid && a !== b) {
+        return dir === "asc" ? a - b : b - a;
+      }
+      if (aValid !== bValid) {
+        return aValid ? -1 : 1;
+      }
+      return String(left.filename).localeCompare(String(right.filename));
+    });
+  }
+
   function flagLabel(flag) {
     return FLAG_LABELS[flag] || String(flag || "FLAG");
   }
@@ -182,6 +199,7 @@
     reviewCacheKey,
     dropletKey,
     applyUsedOverrides,
+    sortRowsByConcentration,
     flagLabel,
     flagTitle,
   };

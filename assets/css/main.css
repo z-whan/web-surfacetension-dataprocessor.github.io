@@ -95,6 +95,12 @@ select {
   color: #7a1f1f;
 }
 
+.error-banner[data-severity="warning"] {
+  border-color: #d2a044;
+  background: #fff8e5;
+  color: #6a4510;
+}
+
 .tabs {
   display: flex;
   gap: 8px;
@@ -446,6 +452,31 @@ select {
 .ghost-button:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+.plot-fit-button {
+  border-color: #3d7f63;
+  background: #e8f4ee;
+  color: #174d35;
+  font-weight: 700;
+}
+
+.plot-fit-button:hover:not(:disabled) {
+  background: #d6eadf;
+}
+
+.table-header-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.table-header-button:hover {
+  text-decoration: underline;
 }
 
 .metric-grid {

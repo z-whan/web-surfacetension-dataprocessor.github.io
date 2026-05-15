@@ -64,6 +64,10 @@ loss/rate while plateau-window volume loss remains available for review.
 `build_cmc_plot_payload_from_review` then turns the review payload plus
 concentrations and plot options into rows, points, σ aliases, and fit overlays
 without rereading files or recomputing droplet QC.
+Files with no droplets marked Used are skipped at this lightweight plotting
+stage and reported as non-fatal warnings, so remaining valid concentrations can
+still be plotted. The UI exposes full-droplet evaporation rate as the main
+evaporation threshold for review.
 
 The browser workflow mirrors that split. `assets/js/app.js` keeps a cached
 `reviewPayload` for expensive file reading and plateau detection, then rebuilds

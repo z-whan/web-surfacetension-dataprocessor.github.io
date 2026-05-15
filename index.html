@@ -512,8 +512,8 @@
                         <input id="cmc-max-sd" type="text" value="0.5" />
                       </div>
                       <div class="field">
-                        <label for="cmc-max-volume-loss">Max Volume Loss (%)</label>
-                        <input id="cmc-max-volume-loss" type="text" value="10" />
+                        <label for="cmc-max-evaporation-rate">Max Full Evaporation Rate (%/min)</label>
+                        <input id="cmc-max-evaporation-rate" type="text" value="0.5" />
                       </div>
                       <div class="field">
                         <label for="cmc-aggregation-method">Aggregation Method</label>
@@ -563,7 +563,7 @@
                   </button>
                   <button
                     id="cmc-plot-fit"
-                    class="secondary-button"
+                    class="secondary-button plot-fit-button"
                     type="button"
                     data-requires-runtime="true"
                   >
@@ -609,7 +609,11 @@
                 <tr>
                   <th>#</th>
                   <th>File</th>
-                  <th>Concentration</th>
+                  <th>
+                    <button class="table-header-button" type="button" data-cmc-sort="concentration">
+                      Concentration
+                    </button>
+                  </th>
                   <th>Metadata</th>
                   <th>Action</th>
                 </tr>

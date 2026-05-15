@@ -43,8 +43,11 @@ The CMC tab is wired in `assets/js/app.js` and calls `py/web_bridge.py`
 through Pyodide. The Python source under `py/DataProcessor/services/` owns the
 analysis pipeline: FAMAS multi-experiment files are adapted into per-droplet
 traces, each droplet receives plateau/equilibrium QC, concentration-level
-aggregates are computed from accepted droplets, and optional segmented CMC/CAC
-fits are returned as Plotly-ready payload data.
+aggregates are computed from accepted droplets, and optional CMC/CAC fits are
+returned as Plotly-ready payload data. The default fit model is the
+surface-tension CMC model: it fits a pre-CMC decline against a high-concentration
+plateau and reports their intersection, while allowing low-concentration
+baseline points to be excluded with provenance warnings.
 
 The CMC payload intentionally keeps provenance alongside the plot data:
 `rows`, `points`, `files`, droplet QC, source metadata, options, and fit
@@ -58,6 +61,9 @@ default accept/exclude decisions without concentration transforms or curve
 fitting. For FAMAS exports, configured experiment slots are reported separately
 from actual valid repeats, and evaporation QC is based on full-droplet volume
 loss/rate while plateau-window volume loss remains available for review.
+`build_cmc_plot_payload_from_review` then turns the review payload plus
+concentrations and plot options into rows, points, σ aliases, and fit overlays
+without rereading files or recomputing droplet QC.
 
 ## Publication Plot Styling
 

@@ -38,10 +38,12 @@ DEFAULT_CMC_QC_OPTIONS: dict[str, Any] = {
     "maxVolumeLossPct": 5.0,
     "maxEvaporationRatePctPerMin": 0.5,
     "aggregationMethod": "mean",
-    "fitModel": "segmented_continuous",
+    "fitModel": "surface_tension_cmc",
     "sampleType": "unknown",
     "minPointsPerSegment": 2,
-    "nBootstrap": 200,
+    "minPrePoints": 3,
+    "minPostPoints": 3,
+    "nBootstrap": 80,
 }
 
 FIT_NOT_ENOUGH_CONCENTRATIONS = "NOT_ENOUGH_CONCENTRATIONS"
@@ -133,10 +135,16 @@ class CmcConcentrationAggregate:
             "gammaStd": self.gamma_std,
             "gammaSe": self.gamma_se,
             "gammaMad": self.gamma_mad,
+            "sigmaMean": self.gamma_mean,
+            "sigmaMedian": self.gamma_median,
+            "sigmaStd": self.gamma_std,
+            "sigmaSe": self.gamma_se,
+            "sigmaMad": self.gamma_mad,
             "dropletCount": self.droplet_count,
             "usedDropletCount": self.used_droplet_count,
             "aggregationMethod": self.aggregation_method,
             "gammaValue": self.gamma_value,
+            "sigmaValue": self.gamma_value,
             "errorValue": self.error_value,
             "errorMetric": self.error_metric,
         }
@@ -153,9 +161,14 @@ def normalize_cmc_qc_options(options: dict[str, Any] | None = None) -> dict[str,
     method = str(normalized.get("aggregationMethod", "mean")).strip().lower()
     normalized["aggregationMethod"] = method if method in ("mean", "median") else "mean"
 
-    model_value = normalized.get("model") if options and "model" in options else normalized.get("fitModel", "segmented_continuous")
+    model_value = normalized.get("model") if options and "model" in options else normalized.get("fitModel", "surface_tension_cmc")
     model = str(model_value).strip().lower()
-    normalized["fitModel"] = model if model in ("none", "segmented_continuous", "segmented_flat_plateau") else "segmented_continuous"
+    normalized["fitModel"] = model if model in (
+        "none",
+        "surface_tension_cmc",
+        "segmented_continuous",
+        "segmented_flat_plateau",
+    ) else "surface_tension_cmc"
 
     sample_type = str(normalized.get("sampleType", "unknown")).strip()
     normalized["sampleType"] = sample_type if sample_type in ("single", "mixture", "WSOM", "unknown") else "unknown"
@@ -188,6 +201,12 @@ def normalize_cmc_qc_options(options: dict[str, Any] | None = None) -> dict[str,
         normalized["minPointsPerSegment"] = max(1, int(normalized["minPointsPerSegment"]))
     except (TypeError, ValueError):
         normalized["minPointsPerSegment"] = int(DEFAULT_CMC_QC_OPTIONS["minPointsPerSegment"])
+
+    for key in ("minPrePoints", "minPostPoints"):
+        try:
+            normalized[key] = max(1, int(normalized[key]))
+        except (TypeError, ValueError):
+            normalized[key] = int(DEFAULT_CMC_QC_OPTIONS[key])
 
     try:
         normalized["nBootstrap"] = max(0, int(normalized["nBootstrap"]))
@@ -906,9 +925,13 @@ def _sample_transition_label(sample_type: str) -> str:
 
 
 def _model_label(model_key: str) -> str:
+    if model_key == "surface_tension_cmc":
+        return "Surface tension CMC"
     if model_key == "segmented_flat_plateau":
         return "Segmented linear + plateau"
-    return "Segmented continuous regression"
+    if model_key == "segmented_continuous":
+        return "Trend breakpoint (not recommended for σ-CMC)"
+    return "No fit"
 
 
 def _coerce_point_value(point: dict[str, Any], keys: Sequence[str]) -> float | None:
@@ -935,14 +958,14 @@ def _prepare_fit_points(points: Sequence[dict[str, Any]]) -> tuple[np.ndarray, n
 
     for idx, point in enumerate(points):
         concentration = _coerce_point_value(point, ("concentration", "C", "c"))
-        y_value = _coerce_point_value(point, ("gammaValue", "gammaMean", "y"))
+        y_value = _coerce_point_value(point, ("sigmaValue", "gammaValue", "sigmaMean", "gammaMean", "y"))
         if concentration is None or y_value is None:
             continue
         if concentration <= 0:
             skipped_nonpositive = True
             continue
 
-        error = _coerce_point_value(point, ("gammaError", "error", "gammaSe", "gammaStd"))
+        error = _coerce_point_value(point, ("sigmaError", "gammaError", "error", "sigmaSe", "gammaSe", "sigmaStd", "gammaStd"))
         if error is None or error <= 0:
             error = 1.0
 
@@ -1110,6 +1133,278 @@ def _bootstrap_cmc_interval(
         return None, None, f"Bootstrap failed: {exc}"
 
 
+def _weighted_line_fit(x: np.ndarray, y: np.ndarray, weights: np.ndarray) -> tuple[float, float, np.ndarray, float]:
+    design = np.column_stack([np.ones_like(x), x])
+    params, rss, y_hat = _weighted_lstsq(design, y, weights)
+    return float(params[0]), float(params[1]), y_hat, rss
+
+
+def _weighted_mean_and_sd(y: np.ndarray, weights: np.ndarray) -> tuple[float, float]:
+    weight_sum = float(np.sum(weights))
+    if weight_sum <= 0:
+        return float(np.mean(y)), float(np.std(y, ddof=1)) if y.size > 1 else 0.0
+    mean = float(np.sum(weights * y) / weight_sum)
+    variance = float(np.sum(weights * np.square(y - mean)) / weight_sum)
+    return mean, float(np.sqrt(max(0.0, variance)))
+
+
+def _surface_monotonic_penalty(y: np.ndarray, error_scale: float) -> float:
+    diffs = np.diff(y)
+    if diffs.size == 0:
+        return 0.0
+    upward = diffs[diffs > max(0.25, error_scale * 2.0)]
+    return float(upward.size) * 1.5 + float(np.sum(upward)) / max(error_scale, 0.25)
+
+
+def _fit_surface_tension_candidate(
+    x: np.ndarray,
+    y: np.ndarray,
+    errors: np.ndarray,
+    *,
+    left_start: int,
+    split: int,
+    min_post_points: int,
+) -> dict[str, Any] | None:
+    pre_x = x[left_start:split]
+    pre_y = y[left_start:split]
+    post_x = x[split:]
+    post_y = y[split:]
+    if pre_x.size < 2 or post_x.size < min_post_points:
+        return None
+
+    pre_weights = _safe_weights(errors[left_start:split])
+    post_weights = _safe_weights(errors[split:])
+    intercept, slope, pre_fit, pre_rss = _weighted_line_fit(pre_x, pre_y, pre_weights)
+    if slope >= 0:
+        return None
+
+    plateau_sigma, plateau_sd = _weighted_mean_and_sd(post_y, post_weights)
+    post_intercept, post_slope, post_fit, _post_slope_rss = _weighted_line_fit(post_x, post_y, post_weights)
+    del post_intercept, _post_slope_rss
+
+    x0 = (plateau_sigma - intercept) / slope
+    if not np.isfinite(x0):
+        return None
+
+    coverage_min = float(x[left_start])
+    coverage_max = float(x[-1])
+    if x0 < coverage_min or x0 > coverage_max:
+        return None
+
+    plateau_fit = np.full_like(post_y, plateau_sigma, dtype=float)
+    post_rss = float(np.sum(post_weights * np.square(post_y - plateau_fit)))
+    reduced_rss = pre_rss / max(1, pre_y.size - 2) + post_rss / max(1, post_y.size - 1)
+
+    error_scale = float(np.median(errors[np.isfinite(errors) & (errors > 0)])) if np.isfinite(errors).any() else 1.0
+    error_scale = max(error_scale, 0.05)
+    pre_span = max(float(pre_x[-1] - pre_x[0]), 1e-9)
+    boundary_left = float(pre_x[-1])
+    boundary_right = float(post_x[0])
+    if boundary_left <= x0 <= boundary_right:
+        boundary_penalty = 0.0
+    else:
+        boundary_distance = min(abs(x0 - boundary_left), abs(x0 - boundary_right))
+        boundary_penalty = 6.0 * boundary_distance / max(pre_span, 0.25)
+
+    excluded_count = left_start
+    excluded_penalty = excluded_count * 0.25 + (excluded_count / max(1, x.size)) * 1.5
+    slope_scale = max(abs(slope), 0.25)
+    post_slope_penalty = max(0.0, abs(post_slope) - slope_scale * 0.12) / slope_scale * 8.0
+    plateau_penalty = max(0.0, plateau_sd - max(0.5, error_scale * 2.5)) / max(error_scale, 0.1) * 2.0
+    pre_slope_penalty = max(0.0, 1.0 - abs(slope)) * 3.0
+    monotonic_penalty = _surface_monotonic_penalty(y[left_start:], error_scale)
+
+    score = (
+        reduced_rss
+        + excluded_penalty
+        + boundary_penalty
+        + post_slope_penalty
+        + plateau_penalty
+        + pre_slope_penalty
+        + monotonic_penalty
+    )
+
+    fitted = np.full_like(y, np.nan, dtype=float)
+    fitted[left_start:split] = pre_fit
+    fitted[split:] = plateau_fit
+    return {
+        "score": float(score),
+        "rss": float(pre_rss + post_rss),
+        "leftStart": int(left_start),
+        "split": int(split),
+        "x0": float(x0),
+        "cmc": float(10 ** x0),
+        "sigmaAtCmc": float(plateau_sigma),
+        "preIntercept": intercept,
+        "preSlope": slope,
+        "preFit": pre_fit,
+        "plateauSigma": float(plateau_sigma),
+        "plateauSd": float(plateau_sd),
+        "postSlopeDiagnostic": float(post_slope),
+        "postFit": post_fit,
+        "fitted": fitted,
+        "boundaryPenalty": float(boundary_penalty),
+        "postSlopePenalty": float(post_slope_penalty),
+        "plateauPenalty": float(plateau_penalty),
+        "preSlopePenalty": float(pre_slope_penalty),
+        "monotonicPenalty": float(monotonic_penalty),
+        "excludedCount": int(excluded_count),
+        "postPointCount": int(post_y.size),
+    }
+
+
+def _fit_surface_tension_cmc_core(
+    x: np.ndarray,
+    y: np.ndarray,
+    errors: np.ndarray,
+    *,
+    min_pre_points: int,
+    min_post_points: int,
+) -> dict[str, Any] | None:
+    if x.size < min_pre_points + min(2, min_post_points):
+        return None
+    order = np.argsort(x)
+    x_sorted = x[order]
+    y_sorted = y[order]
+    errors_sorted = errors[order]
+
+    post_min = min_post_points
+    if x_sorted.size < min_pre_points + post_min and min_post_points > 2:
+        post_min = 2
+
+    best: dict[str, Any] | None = None
+    max_left_start = max(0, x_sorted.size - min_pre_points - post_min)
+    for left_start in range(0, max_left_start + 1):
+        for split in range(left_start + min_pre_points, x_sorted.size - post_min + 1):
+            candidate = _fit_surface_tension_candidate(
+                x_sorted,
+                y_sorted,
+                errors_sorted,
+                left_start=left_start,
+                split=split,
+                min_post_points=post_min,
+            )
+            if candidate is None:
+                continue
+            if best is None or float(candidate["score"]) < float(best["score"]):
+                best = candidate
+
+    if best is None:
+        return None
+    best["xSorted"] = x_sorted
+    best["ySorted"] = y_sorted
+    best["errorsSorted"] = errors_sorted
+    best["order"] = order
+    best["minPostUsed"] = post_min
+    return best
+
+
+def _bootstrap_surface_cmc_interval(
+    x: np.ndarray,
+    y: np.ndarray,
+    errors: np.ndarray,
+    *,
+    min_pre_points: int,
+    min_post_points: int,
+    n_bootstrap: int,
+) -> tuple[float | None, float | None, str | None]:
+    if n_bootstrap <= 0:
+        return None, None, None
+    try:
+        rng = np.random.default_rng(1729)
+        estimates: list[float] = []
+        n = len(x)
+        for _ in range(n_bootstrap):
+            indexes = rng.integers(0, n, size=n)
+            if np.unique(x[indexes]).size < min_pre_points + min(2, min_post_points):
+                continue
+            result = _fit_surface_tension_cmc_core(
+                x[indexes],
+                y[indexes],
+                errors[indexes],
+                min_pre_points=min_pre_points,
+                min_post_points=min_post_points,
+            )
+            if result is not None and np.isfinite(result["cmc"]):
+                estimates.append(float(result["cmc"]))
+        if len(estimates) < max(10, int(n_bootstrap * 0.2)):
+            return None, None, "Bootstrap produced too few valid CMC estimates."
+        arr = np.asarray(estimates, dtype=float)
+        return float(np.percentile(arr, 2.5)), float(np.percentile(arr, 97.5)), None
+    except Exception as exc:  # pragma: no cover - defensive browser runtime guard
+        return None, None, f"Bootstrap failed: {exc}"
+
+
+def _surface_fit_series_payload(result: dict[str, Any], *, plot_use_log: bool) -> list[dict[str, Any]]:
+    x_sorted = result["xSorted"]
+    left_start = int(result["leftStart"])
+    split = int(result["split"])
+    x0 = float(result["x0"])
+    pre_start = float(x_sorted[left_start])
+    post_end = float(x_sorted[-1])
+    pre_grid = np.linspace(pre_start, x0, 80)
+    post_grid = np.linspace(x0, post_end, 80)
+    pre_y = float(result["preIntercept"]) + float(result["preSlope"]) * pre_grid
+    post_y = np.full_like(post_grid, float(result["plateauSigma"]), dtype=float)
+    return [
+        {
+            "name": "pre-CMC decline",
+            "x": (pre_grid if plot_use_log else np.power(10.0, pre_grid)).tolist(),
+            "xLog": pre_grid.tolist(),
+            "y": pre_y.tolist(),
+        },
+        {
+            "name": "post-CMC plateau",
+            "x": (post_grid if plot_use_log else np.power(10.0, post_grid)).tolist(),
+            "xLog": post_grid.tolist(),
+            "y": post_y.tolist(),
+        },
+    ]
+
+
+def _surface_fit_warnings(
+    result: dict[str, Any],
+    warnings: list[dict[str, str]],
+    *,
+    requested_min_post_points: int,
+) -> None:
+    if int(result["minPostUsed"]) < requested_min_post_points:
+        warnings.append(_fit_warning_payload(
+            "LOW_POST_PLATEAU_POINTS",
+            "Only two high-concentration points were available for the plateau segment.",
+        ))
+    if result["boundaryPenalty"] > 0:
+        warnings.append(_fit_warning_payload(
+            FIT_BREAKPOINT_AT_BOUNDARY,
+            "The CMC intersection is not directly between the fitted decline and plateau segments.",
+        ))
+    if result["postSlopePenalty"] > 0:
+        warnings.append(_fit_warning_payload(
+            FIT_HIGH_POST_CMC_SLOPE,
+            "High-concentration points still show a measurable post-CMC slope.",
+        ))
+    if result["plateauPenalty"] > 0:
+        warnings.append(_fit_warning_payload(
+            FIT_NO_CLEAR_PLATEAU,
+            "High-concentration plateau scatter is larger than expected.",
+        ))
+    if result["preSlopePenalty"] > 0:
+        warnings.append(_fit_warning_payload(
+            "WEAK_PRE_CMC_DECLINE",
+            "The fitted pre-CMC decline is shallow.",
+        ))
+    if result["monotonicPenalty"] > 0:
+        warnings.append(_fit_warning_payload(
+            FIT_NON_MONOTONIC_OR_DIP,
+            "Surface tension is not monotonic across the fitted pre/post CMC range.",
+        ))
+    if int(result["excludedCount"]) > 0:
+        warnings.append(_fit_warning_payload(
+            "LOW_CONCENTRATION_BASELINE_EXCLUDED",
+            "Low-concentration baseline points were excluded from the pre-CMC decline fit.",
+        ))
+
+
 def _fit_series_payload(result: dict[str, Any], *, plot_use_log: bool) -> list[dict[str, Any]]:
     x_sorted = result["xSorted"]
     x_grid = np.linspace(float(x_sorted.min()), float(x_sorted.max()), 160)
@@ -1180,6 +1475,8 @@ def fit_cmc_curve(points: Sequence[dict[str, Any]], options: dict[str, Any] | No
     model_key = str(fit_options["fitModel"])
     sample_type = str(fit_options["sampleType"])
     min_points_per_segment = int(fit_options["minPointsPerSegment"])
+    min_pre_points = int(fit_options["minPrePoints"])
+    min_post_points = int(fit_options["minPostPoints"])
     n_bootstrap = int(fit_options["nBootstrap"])
     plot_use_log = bool((options or {}).get("plotUseLog", False))
     label = _sample_transition_label(sample_type)
@@ -1192,18 +1489,121 @@ def fit_cmc_curve(points: Sequence[dict[str, Any]], options: dict[str, Any] | No
         "modelLabel": _model_label(model_key),
         "equationText": "",
         "xScale": "log10C",
+        "transitionLabel": label,
         "cmc": None,
         "cmcLog10": None,
+        "sigmaAtCmc": None,
         "gammaAtCmc": None,
         "ciLow": None,
         "ciHigh": None,
         "parameters": {},
+        "fitSegments": [],
         "fitSeries": [],
         "cmcMarker": None,
         "residuals": [],
         "usedPointIndexes": used_indexes,
         "warnings": warnings,
     }
+
+    if model_key == "surface_tension_cmc":
+        min_post_available = min_post_points
+        if len(used_indexes) < min_pre_points + min_post_available and min_post_available > 2:
+            min_post_available = 2
+        min_required_surface = min_pre_points + min_post_available
+        if len(used_indexes) < min_required_surface or np.unique(x).size < min_required_surface:
+            base["warnings"].append(_fit_warning_payload(
+                FIT_NOT_ENOUGH_CONCENTRATIONS,
+                f"At least {min_required_surface} positive concentration points are required for surface-tension CMC fitting.",
+            ))
+            return base
+
+        result = _fit_surface_tension_cmc_core(
+            x,
+            y,
+            errors,
+            min_pre_points=min_pre_points,
+            min_post_points=min_post_points,
+        )
+        if result is None:
+            base["warnings"].append(_fit_warning_payload(
+                FIT_NO_CLEAR_PLATEAU,
+                "Could not find a negative pre-CMC decline followed by a usable high-concentration plateau.",
+            ))
+            return base
+
+        _surface_fit_warnings(result, warnings, requested_min_post_points=min_post_points)
+        ci_low, ci_high, bootstrap_warning = _bootstrap_surface_cmc_interval(
+            x,
+            y,
+            errors,
+            min_pre_points=min_pre_points,
+            min_post_points=min_post_points,
+            n_bootstrap=n_bootstrap,
+        )
+        if bootstrap_warning:
+            warnings.append(_fit_warning_payload("BOOTSTRAP_FAILED", bootstrap_warning))
+
+        x_sorted = result["xSorted"]
+        y_sorted = result["ySorted"]
+        order = result["order"]
+        left_start = int(result["leftStart"])
+        split = int(result["split"])
+        fitted = result["fitted"]
+        residuals = []
+        for idx in range(len(x_sorted)):
+            fitted_value = fitted[idx]
+            residuals.append({
+                "pointIndex": used_indexes[int(order[idx])],
+                "x": float(x_sorted[idx]),
+                "y": float(y_sorted[idx]),
+                "fitted": None if not np.isfinite(fitted_value) else float(fitted_value),
+                "residual": None if not np.isfinite(fitted_value) else float(y_sorted[idx] - fitted_value),
+                "excludedFromFit": bool(idx < left_start),
+                "segment": "excluded_baseline" if idx < left_start else ("pre" if idx < split else "post"),
+            })
+
+        excluded_indexes = [
+            used_indexes[int(order[idx])]
+            for idx in range(left_start)
+        ]
+        fit_series = _surface_fit_series_payload(result, plot_use_log=plot_use_log)
+        sigma_at_cmc = float(result["sigmaAtCmc"])
+        cmc = float(result["cmc"])
+        x0 = float(result["x0"])
+        base.update({
+            "equationText": f"{label}: σ = a + b·log10(C) until σ = σ_plateau",
+            "cmc": cmc,
+            "cmcLog10": x0,
+            "sigmaAtCmc": sigma_at_cmc,
+            "gammaAtCmc": sigma_at_cmc,
+            "ciLow": ci_low,
+            "ciHigh": ci_high,
+            "parameters": {
+                "preSlope": float(result["preSlope"]),
+                "preIntercept": float(result["preIntercept"]),
+                "plateauSigma": sigma_at_cmc,
+                "plateauSd": float(result["plateauSd"]),
+                "postSlopeDiagnostic": float(result["postSlopeDiagnostic"]),
+                "leftStartIndex": left_start,
+                "splitIndex": split,
+                "excludedLowConcentrationPointIndexes": excluded_indexes,
+                "rss": float(result["rss"]),
+                "score": float(result["score"]),
+                "sampleType": sample_type,
+                "transitionLabel": label,
+            },
+            "fitSegments": fit_series,
+            "fitSeries": fit_series,
+            "cmcMarker": {
+                "x": x0 if plot_use_log else cmc,
+                "xLog": x0,
+                "y": sigma_at_cmc,
+                "label": label,
+            },
+            "residuals": residuals,
+            "warnings": warnings,
+        })
+        return base
 
     if len(used_indexes) < min_required or np.unique(x).size < min_required:
         base["warnings"].append(_fit_warning_payload(
@@ -1245,14 +1645,14 @@ def fit_cmc_curve(points: Sequence[dict[str, Any]], options: dict[str, Any] | No
     _scientific_fit_warnings(result, warnings)
 
     if model_key == "segmented_flat_plateau":
-        equation = "γ = a + b·min(log10(C), x0)"
+        equation = "σ = a + b·min(log10(C), x0)"
         parameters = {
             "a": float(result["params"][0]),
             "b": float(result["params"][1]),
-            "plateauGamma": gamma_at_cmc,
+            "plateauSigma": gamma_at_cmc,
         }
     else:
-        equation = "γ = a + b1·log10(C) + b2·max(0, log10(C)-x0)"
+        equation = "σ = a + b1·log10(C) + b2·max(0, log10(C)-x0)"
         parameters = {
             "a": float(result["params"][0]),
             "b1": float(result["params"][1]),
@@ -1275,6 +1675,7 @@ def fit_cmc_curve(points: Sequence[dict[str, Any]], options: dict[str, Any] | No
         "equationText": f"{label}: {equation}",
         "cmc": cmc,
         "cmcLog10": x0,
+        "sigmaAtCmc": gamma_at_cmc,
         "gammaAtCmc": gamma_at_cmc,
         "ciLow": ci_low,
         "ciHigh": ci_high,
@@ -1285,6 +1686,7 @@ def fit_cmc_curve(points: Sequence[dict[str, Any]], options: dict[str, Any] | No
             "sampleType": sample_type,
             "transitionLabel": label,
         },
+        "fitSegments": _fit_series_payload(result, plot_use_log=plot_use_log),
         "fitSeries": _fit_series_payload(result, plot_use_log=plot_use_log),
         "cmcMarker": {
             "x": x0 if plot_use_log else cmc,

@@ -582,85 +582,161 @@ def review_cmc_files(
     return review_payload
 
 
-def analyze_cmc_files(
-    entries: list[dict[str, Any]],
-    t_min_text: str,
-    t_max_text: str,
-    c_unit: str,
-    use_log: bool,
-    options: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    review_payload, review_internals = _build_cmc_review_payload(entries, t_min_text, t_max_text, options)
-    qc_options = review_payload["options"]
+def _aggregate_qc_payloads(qc_payloads: list[dict[str, Any]], aggregation_method: str) -> dict[str, Any]:
+    values = np.asarray(
+        [
+            float(qc.get("gammaEq"))
+            for qc in qc_payloads
+            if qc.get("usedForAggregate")
+            and qc.get("gammaEq") is not None
+            and math.isfinite(float(qc.get("gammaEq")))
+        ],
+        dtype=float,
+    )
+    method = aggregation_method if aggregation_method in ("mean", "median") else "mean"
+    droplet_count = len(qc_payloads)
+    used_count = int(values.size)
+    if used_count == 0:
+        raise DataProcessingError("No valid droplet data in the requested time range.")
 
-    rows: list[dict[str, Any]] = []
-    for item in review_internals:
-        entry = item["entry"]
-        filename = item["file"]["filename"]
-        path = item["file"]["path"]
-        concentration_text = str(entry.get("concentration", "")).strip()
+    gamma_mean = float(values.mean())
+    gamma_median = float(np.median(values))
+    gamma_std = float(values.std(ddof=1)) if used_count > 1 else 0.0
+    gamma_se = float(gamma_std / np.sqrt(used_count)) if used_count > 0 else None
+    gamma_mad = float(np.median(np.abs(values - gamma_median)))
+    gamma_value = gamma_median if method == "median" else gamma_mean
+    error_value = gamma_se if gamma_se is not None else gamma_std
+    error_metric = "gammaSe" if gamma_se is not None else "gammaStd"
+    return {
+        "gammaMean": gamma_mean,
+        "gammaMedian": gamma_median,
+        "gammaStd": gamma_std,
+        "gammaSe": gamma_se,
+        "gammaMad": gamma_mad,
+        "sigmaMean": gamma_mean,
+        "sigmaMedian": gamma_median,
+        "sigmaStd": gamma_std,
+        "sigmaSe": gamma_se,
+        "sigmaMad": gamma_mad,
+        "dropletCount": droplet_count,
+        "usedDropletCount": used_count,
+        "aggregationMethod": method,
+        "gammaValue": gamma_value,
+        "sigmaValue": gamma_value,
+        "errorValue": error_value,
+        "errorMetric": error_metric,
+    }
 
+
+def _review_concentration_map(plot_options: dict[str, Any]) -> dict[str, float]:
+    mapping: dict[str, float] = {}
+    concentration_entries = plot_options.get("concentrations") or plot_options.get("entries") or []
+    for idx, item in enumerate(concentration_entries):
+        filename = str(item.get("filename", "")).strip()
+        path = str(item.get("path", "")).strip()
+        concentration_text = str(item.get("concentration", "")).strip()
         if not concentration_text:
-            raise DataProcessingError(f"Concentration is required for '{filename}'.")
-
+            raise DataProcessingError(f"Concentration is required for '{filename or path or 'unknown file'}'.")
         try:
             concentration = float(concentration_text)
         except ValueError as exc:
             raise DataProcessingError(
-                f"Concentration for '{filename}' must be numeric."
+                f"Concentration for '{filename or path or 'unknown file'}' must be numeric."
             ) from exc
-
         if concentration < 0:
-            raise DataProcessingError(f"Concentration for '{filename}' must be >= 0.")
+            raise DataProcessingError(f"Concentration for '{filename or path or 'unknown file'}' must be >= 0.")
+        if path:
+            mapping[f"path:{path}"] = concentration
+        if filename:
+            mapping[f"filename:{filename}"] = concentration
+        mapping[f"index:{idx}"] = concentration
+    return mapping
 
-        droplet_traces = item["traces"]
-        droplet_qc = item["qc"]
-        aggregate = aggregate_cmc_qc_results(
-            droplet_qc,
-            aggregation_method=str(qc_options["aggregationMethod"]),
-        )
-        aggregate_payload = aggregate.to_payload()
-        warning_count = sum(1 for qc in droplet_qc if qc.flags)
-        file_payload = {
-            **item["file"],
-            "aggregate": _payload_value(aggregate_payload),
+
+def _concentration_for_file(file_payload: dict[str, Any], index: int, concentration_map: dict[str, float]) -> float:
+    path = str(file_payload.get("path", "")).strip()
+    filename = str(file_payload.get("filename", "")).strip()
+    for key in (f"path:{path}", f"filename:{filename}", f"index:{index}"):
+        if key in concentration_map:
+            return concentration_map[key]
+    value = file_payload.get("concentration")
+    if value is not None:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError) as exc:
+            raise DataProcessingError(f"Concentration for '{filename or path}' must be numeric.") from exc
+        if numeric >= 0:
+            return numeric
+    raise DataProcessingError(f"Concentration is required for '{filename or path or 'unknown file'}'.")
+
+
+def build_cmc_plot_payload_from_review(
+    review_payload: dict[str, Any],
+    plot_options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    plot_options = plot_options or {}
+    qc_options = normalize_cmc_qc_options({
+        **(review_payload.get("options") or {}),
+        **plot_options,
+    })
+    use_log = bool(plot_options.get("useLog", plot_options.get("plotUseLog", False)))
+    c_unit = str(plot_options.get("cUnit", plot_options.get("concentrationUnit", "")) or "")
+    concentration_map = _review_concentration_map(plot_options)
+
+    rows: list[dict[str, Any]] = []
+    files = list(review_payload.get("files") or [])
+    for file_index, file_payload in enumerate(files):
+        filename = str(file_payload.get("filename", "")).strip()
+        path = str(file_payload.get("path", "")).strip()
+        concentration = _concentration_for_file(file_payload, file_index, concentration_map)
+        droplets = list(file_payload.get("droplets") or [])
+        qc_payloads = [droplet.get("qc") or {} for droplet in droplets]
+        aggregate = _aggregate_qc_payloads(qc_payloads, str(qc_options["aggregationMethod"]))
+        warning_count = sum(1 for qc in qc_payloads if qc.get("flags"))
+        file_with_aggregate = {
+            **file_payload,
+            "concentration": concentration,
+            "aggregate": _payload_value(aggregate),
         }
 
-        rows.append(
-            {
-                "filename": filename,
-                "path": path,
-                "concentration": concentration,
-                "gammaMean": aggregate.gamma_mean,
-                "gammaMedian": aggregate.gamma_median,
-                "gammaStd": aggregate.gamma_std,
-                "gammaSe": aggregate.gamma_se,
-                "gammaMad": aggregate.gamma_mad,
-                "gammaValue": aggregate.gamma_value,
-                "gammaError": aggregate.error_value,
-                "gammaErrorMetric": aggregate.error_metric,
-                "dropletCount": aggregate.droplet_count,
-                "usedDropletCount": aggregate.used_droplet_count,
-                "aggregationMethod": aggregate.aggregation_method,
-                "usedForAggregate": aggregate.used_droplet_count > 0,
-                "warningCount": warning_count,
-                "file": file_payload,
-            }
-        )
+        rows.append({
+            "filename": filename,
+            "path": path,
+            "concentration": concentration,
+            "gammaMean": aggregate["gammaMean"],
+            "gammaMedian": aggregate["gammaMedian"],
+            "gammaStd": aggregate["gammaStd"],
+            "gammaSe": aggregate["gammaSe"],
+            "gammaMad": aggregate["gammaMad"],
+            "gammaValue": aggregate["gammaValue"],
+            "gammaError": aggregate["errorValue"],
+            "gammaErrorMetric": aggregate["errorMetric"],
+            "sigmaMean": aggregate["sigmaMean"],
+            "sigmaMedian": aggregate["sigmaMedian"],
+            "sigmaStd": aggregate["sigmaStd"],
+            "sigmaSe": aggregate["sigmaSe"],
+            "sigmaMad": aggregate["sigmaMad"],
+            "sigmaValue": aggregate["sigmaValue"],
+            "sigmaError": aggregate["errorValue"],
+            "dropletCount": aggregate["dropletCount"],
+            "usedDropletCount": aggregate["usedDropletCount"],
+            "aggregationMethod": aggregate["aggregationMethod"],
+            "usedForAggregate": aggregate["usedDropletCount"] > 0,
+            "warningCount": warning_count,
+            "file": file_with_aggregate,
+        })
 
     c_arr = np.asarray([row["concentration"] for row in rows], dtype=float)
     if use_log:
-        if not np.all(c_arr > 0):
-            raise DataProcessingError(
-                "log10(C) is only defined for concentrations greater than 0."
-            )
-        x_arr = np.log10(c_arr)
+        x_arr = np.full_like(c_arr, np.nan, dtype=float)
+        positive_mask = c_arr > 0
+        x_arr[positive_mask] = np.log10(c_arr[positive_mask])
         x_label = f"log10 C ({c_unit})" if c_unit else "log10 C"
     else:
         x_arr = c_arr
         x_label = f"Concentration C ({c_unit})" if c_unit else "Concentration C"
 
-    order = np.argsort(x_arr)
+    order = np.argsort(np.where(np.isfinite(x_arr), x_arr, np.inf))
     plot_rows = [rows[int(idx)] for idx in order.tolist()]
     x_sorted = x_arr[order]
     point_payload = [
@@ -669,6 +745,8 @@ def analyze_cmc_files(
             "y": _finite_or_none(plot_rows[idx]["gammaValue"]),
             "error": _finite_or_none(plot_rows[idx]["gammaError"]),
             "errorMetric": plot_rows[idx]["gammaErrorMetric"],
+            "sigmaValue": _finite_or_none(plot_rows[idx]["sigmaValue"]),
+            "sigmaError": _finite_or_none(plot_rows[idx]["sigmaError"]),
             "filename": plot_rows[idx]["filename"],
             "concentration": _finite_or_none(plot_rows[idx]["concentration"]),
             "dropletCount": int(plot_rows[idx]["dropletCount"]),
@@ -690,6 +768,13 @@ def analyze_cmc_files(
             "gammaValue": _finite_or_none(row["gammaValue"]),
             "gammaError": _finite_or_none(row["gammaError"]),
             "gammaErrorMetric": row["gammaErrorMetric"],
+            "sigmaMean": _finite_or_none(row["sigmaMean"]),
+            "sigmaMedian": _finite_or_none(row["sigmaMedian"]),
+            "sigmaStd": _finite_or_none(row["sigmaStd"]),
+            "sigmaSe": _finite_or_none(row["sigmaSe"]),
+            "sigmaMad": _finite_or_none(row["sigmaMad"]),
+            "sigmaValue": _finite_or_none(row["sigmaValue"]),
+            "sigmaError": _finite_or_none(row["sigmaError"]),
             "dropletCount": int(row["dropletCount"]),
             "usedDropletCount": int(row["usedDropletCount"]),
             "aggregationMethod": row["aggregationMethod"],
@@ -706,8 +791,12 @@ def analyze_cmc_files(
         fit_payload = {
             "modelKey": "none",
             "modelLabel": "No fit",
+            "transitionLabel": None,
             "fitSeries": [],
+            "fitSegments": [],
             "cmcMarker": None,
+            "sigmaAtCmc": None,
+            "gammaAtCmc": None,
             "warnings": [],
         }
     else:
@@ -723,8 +812,33 @@ def analyze_cmc_files(
         "options": _payload_value(qc_options),
         "summary": {
             "fileCount": len(plot_rows),
-            "timeWindow": review_payload["summary"]["timeWindow"],
+            "timeWindow": (review_payload.get("summary") or {}).get("timeWindow"),
             "plateauMode": qc_options["plateauMode"],
             "aggregationMethod": qc_options["aggregationMethod"],
         },
     }
+
+
+def analyze_cmc_files(
+    entries: list[dict[str, Any]],
+    t_min_text: str,
+    t_max_text: str,
+    c_unit: str,
+    use_log: bool,
+    options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    review_payload, _ = _build_cmc_review_payload(entries, t_min_text, t_max_text, options)
+    plot_options = {
+        **(options or {}),
+        "cUnit": c_unit,
+        "useLog": bool(use_log),
+        "concentrations": [
+            {
+                "filename": str(entry.get("filename", "")).strip(),
+                "path": str(entry.get("path", "")).strip(),
+                "concentration": str(entry.get("concentration", "")).strip(),
+            }
+            for entry in entries
+        ],
+    }
+    return build_cmc_plot_payload_from_review(review_payload, plot_options)

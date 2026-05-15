@@ -27,6 +27,7 @@ from web_bridge import (  # noqa: E402
     analyze_cmc_files,
     analyze_plot_file,
     analyze_plot_noise,
+    build_cmc_plot_payload_from_review,
     analyze_time_series_quality,
     extract_plot_trend,
     infer_concentration,
@@ -883,6 +884,145 @@ class WebBridgeTests(unittest.TestCase):
 
         self.assertEqual(fit["cmcMarker"]["label"], "apparent CMC/CAC")
         self.assertIn("apparent CMC/CAC", fit["equationText"])
+
+    def _surface_tension_points(self):
+        concentrations = np.asarray([0.01, 0.03, 0.1, 0.3, 1, 2, 4, 6, 8, 12, 20, 40, 80], dtype=float)
+        x0 = np.log10(8.0)
+        sigma = []
+        for concentration in concentrations:
+            x = np.log10(concentration)
+            if concentration < 1:
+                sigma.append(72.0)
+            elif concentration < 8:
+                sigma.append(39.0 - 20.0 * (x - x0))
+            else:
+                sigma.append(39.0)
+        return [
+            {"concentration": float(concentration), "sigmaValue": float(value), "sigmaError": 0.2}
+            for concentration, value in zip(concentrations, sigma)
+        ]
+
+    def test_surface_tension_cmc_fits_plateau_intersection_not_onset(self):
+        fit = fit_cmc_curve(self._surface_tension_points(), {
+            "sampleType": "single",
+            "nBootstrap": 0,
+        })
+
+        self.assertEqual(fit["modelKey"], "surface_tension_cmc")
+        self.assertEqual(fit["modelLabel"], "Surface tension CMC")
+        self.assertAlmostEqual(fit["cmc"], 8.0, delta=0.4)
+        self.assertGreater(fit["cmc"], 3.0)
+        self.assertAlmostEqual(fit["sigmaAtCmc"], 39.0, delta=0.2)
+        self.assertEqual(fit["gammaAtCmc"], fit["sigmaAtCmc"])
+        self.assertEqual(len(fit["fitSeries"]), 2)
+        self.assertIn("σ", fit["equationText"])
+
+    def test_segmented_continuous_still_runs_but_is_not_default(self):
+        default_fit = fit_cmc_curve(self._surface_tension_points(), {"nBootstrap": 0})
+        trend_fit = fit_cmc_curve(self._surface_tension_points(), {
+            "model": "segmented_continuous",
+            "nBootstrap": 0,
+        })
+
+        self.assertEqual(default_fit["modelKey"], "surface_tension_cmc")
+        self.assertEqual(trend_fit["modelKey"], "segmented_continuous")
+        self.assertEqual(
+            trend_fit["modelLabel"],
+            "Trend breakpoint (not recommended for σ-CMC)",
+        )
+        self.assertIsNotNone(trend_fit["cmc"])
+
+    def test_surface_tension_cmc_records_excluded_low_baseline_points(self):
+        fit = fit_cmc_curve(self._surface_tension_points(), {"nBootstrap": 0})
+
+        excluded = fit["parameters"]["excludedLowConcentrationPointIndexes"]
+        self.assertEqual(excluded, [0, 1, 2, 3])
+        self.assertIn(
+            "LOW_CONCENTRATION_BASELINE_EXCLUDED",
+            [warning["code"] for warning in fit["warnings"]],
+        )
+
+    def test_surface_tension_cmc_plot_scale_changes_display_not_cmc(self):
+        points = self._surface_tension_points()
+        fit_linear = fit_cmc_curve(points, {
+            "fitModel": "surface_tension_cmc",
+            "plotUseLog": False,
+            "nBootstrap": 0,
+        })
+        fit_log = fit_cmc_curve(points, {
+            "fitModel": "surface_tension_cmc",
+            "plotUseLog": True,
+            "nBootstrap": 0,
+        })
+
+        self.assertAlmostEqual(fit_linear["cmc"], fit_log["cmc"], delta=1e-9)
+        self.assertAlmostEqual(fit_linear["cmcLog10"], fit_log["cmcLog10"], delta=1e-9)
+        self.assertAlmostEqual(fit_linear["cmcMarker"]["x"], fit_linear["cmc"], delta=1e-9)
+        self.assertAlmostEqual(fit_log["cmcMarker"]["x"], fit_log["cmcLog10"], delta=1e-9)
+        self.assertNotEqual(fit_linear["fitSeries"][0]["x"][0], fit_log["fitSeries"][0]["x"][0])
+
+    def test_surface_tension_cmc_n_bootstrap_zero_skips_ci(self):
+        fit = fit_cmc_curve(self._surface_tension_points(), {"nBootstrap": 0})
+
+        self.assertIsNone(fit["ciLow"])
+        self.assertIsNone(fit["ciHigh"])
+        self.assertNotIn("BOOTSTRAP_FAILED", [warning["code"] for warning in fit["warnings"]])
+
+    def test_surface_tension_cmc_wsom_uses_apparent_label(self):
+        fit = fit_cmc_curve(self._surface_tension_points(), {
+            "sampleType": "WSOM",
+            "nBootstrap": 0,
+        })
+
+        self.assertEqual(fit["transitionLabel"], "apparent CMC/CAC")
+        self.assertEqual(fit["cmcMarker"]["label"], "apparent CMC/CAC")
+        self.assertIn("apparent CMC/CAC", fit["equationText"])
+
+    def test_build_cmc_plot_payload_from_review_reuses_qc_without_refitting_droplets(self):
+        review = {
+            "files": [],
+            "options": {"fitModel": "surface_tension_cmc", "aggregationMethod": "mean"},
+            "summary": {"timeWindow": [0, 10000], "plateauMode": "manual"},
+        }
+        for idx, point in enumerate(self._surface_tension_points()):
+            review["files"].append({
+                "filename": f"c{idx}.csv",
+                "path": f"/tmp/c{idx}.csv",
+                "metadata": {},
+                "detectedDropletCount": 1,
+                "droplets": [{
+                    "dropletIndex": 1,
+                    "qc": {
+                        "gammaEq": point["sigmaValue"],
+                        "usedForAggregate": True,
+                        "flags": [],
+                    },
+                }],
+            })
+
+        payload_linear = build_cmc_plot_payload_from_review(review, {
+            "concentrations": [
+                {"filename": f"c{idx}.csv", "path": f"/tmp/c{idx}.csv", "concentration": point["concentration"]}
+                for idx, point in enumerate(self._surface_tension_points())
+            ],
+            "useLog": False,
+            "nBootstrap": 0,
+        })
+        payload_log = build_cmc_plot_payload_from_review(review, {
+            "concentrations": [
+                {"filename": f"c{idx}.csv", "path": f"/tmp/c{idx}.csv", "concentration": point["concentration"]}
+                for idx, point in enumerate(self._surface_tension_points())
+            ],
+            "useLog": True,
+            "nBootstrap": 0,
+        })
+
+        self.assertAlmostEqual(payload_linear["fit"]["cmc"], 8.0, delta=0.4)
+        self.assertAlmostEqual(payload_linear["fit"]["cmc"], payload_log["fit"]["cmc"], delta=1e-9)
+        self.assertAlmostEqual(payload_linear["fit"]["cmcMarker"]["x"], payload_linear["fit"]["cmc"], delta=1e-9)
+        self.assertAlmostEqual(payload_log["fit"]["cmcMarker"]["x"], payload_log["fit"]["cmcLog10"], delta=1e-9)
+        self.assertIn("sigmaValue", payload_linear["rows"][0])
+        self.assertIn("sigmaError", payload_linear["points"][0])
 
     def test_extract_plot_trend(self):
         content = "Time (ms),I.T.(mN/m).1\n0,0\n1,1\n2,2\n3,3\n4,4\n5,5\n"

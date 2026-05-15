@@ -200,7 +200,7 @@
       : "—";
     domUtils.replaceChildren(dom.cmcSummary, [
       domUtils.metricCard(label, fit.cmc ? numericText(fit.cmc, 5) : "—"),
-      domUtils.metricCard("γCMC", fit.gammaAtCmc ? numericText(fit.gammaAtCmc, 4) : "—"),
+      domUtils.metricCard("σCMC", fit.sigmaAtCmc ? numericText(fit.sigmaAtCmc, 4) : "—"),
       domUtils.metricCard("CI", ciText),
       domUtils.metricCard("Model", fit.modelLabel || "No fit"),
       domUtils.metricCard("Files", payload.summary.fileCount),

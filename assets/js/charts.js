@@ -128,6 +128,10 @@
     };
   }
 
+  function isOriginalExperimentSeries(series) {
+    return Number.isInteger(Number(series && series.experimentIndex));
+  }
+
   function buildTrendTrace(series, index) {
     const experimentIndex = Number(series.experimentIndex);
     const legendgroup = Number.isInteger(experimentIndex) ? `exp-${experimentIndex}` : undefined;
@@ -194,17 +198,18 @@
         : null;
     const traces = [];
 
-    if (showRaw) {
-      rawPayload.series.forEach((series, index) => {
-        const trace = buildRawTrace(series, index);
-        if (trendPayload) {
-          trace.line.width = 1.4;
-          trace.opacity = 0.55;
-          trace.name = series.name + " raw";
-        }
-        traces.push(trace);
-      });
-    }
+    rawPayload.series.forEach((series, index) => {
+      if (!showRaw && isOriginalExperimentSeries(series)) {
+        return;
+      }
+      const trace = buildRawTrace(series, index);
+      if (trendPayload) {
+        trace.line.width = 1.4;
+        trace.opacity = 0.55;
+        trace.name = series.name + " raw";
+      }
+      traces.push(trace);
+    });
 
     if (trendPayload) {
       trendPayload.series.forEach((series, index) => {

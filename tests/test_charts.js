@@ -83,6 +83,25 @@ assert(charts, "SurfaceLabCharts should attach to globalThis");
   assert.strictEqual(captured.data[0].yaxis, "y2");
   assert.strictEqual(captured.data[0].line.dash, "dot");
 
+  await charts.renderTimeSeriesPlot(
+    {},
+    {
+      xLabel: "Time (ms)",
+      series: [
+        { name: "Exp 1 σ", experimentIndex: 1, x: [1000, 2000], y: [70, 71] },
+        { name: "Exp 2 σ", experimentIndex: 2, x: [1000, 2000], y: [72, 73] },
+        { name: "Avg (1-2)", x: [1000, 2000], y: [71, 72] },
+      ],
+    },
+    {
+      showRaw: false,
+    }
+  );
+
+  assert.strictEqual(captured.data.length, 1);
+  assert.strictEqual(captured.data[0].name, "Avg (1-2)");
+  assert.strictEqual(captured.data[0].line.dash, undefined);
+
   await charts.renderComparePlot(
     {},
     [

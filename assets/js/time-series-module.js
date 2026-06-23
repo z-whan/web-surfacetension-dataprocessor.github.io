@@ -310,6 +310,10 @@
     return Array.isArray(values) ? values.slice() : [];
   }
 
+  function isOriginalExperimentSeries(series) {
+    return Number.isInteger(Number(series && series.experimentIndex));
+  }
+
   function buildHelpSection(title, methods) {
     const section = domUtils.el("section", { className: "help-section" }, [
       domUtils.el("h3", { text: title }),
@@ -842,11 +846,12 @@
       }
 
       const curves = [];
-      if (this.state.showRaw) {
-        this.state.rawPayload.series.forEach((series, index) => {
-          curves.push(this.buildCompareCurve(series, "raw", index));
-        });
-      }
+      this.state.rawPayload.series.forEach((series, index) => {
+        if (!this.state.showRaw && isOriginalExperimentSeries(series)) {
+          return;
+        }
+        curves.push(this.buildCompareCurve(series, "raw", index));
+      });
 
       if (this.state.trendPayload) {
         this.state.trendPayload.series.forEach((series, index) => {

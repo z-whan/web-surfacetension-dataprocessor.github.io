@@ -8,7 +8,7 @@
   const DEFAULT_AXIS_LINE_WIDTH = 1;
   const DEFAULT_LEGEND_POSITION = "outside-top";
   const DEFAULT_LEGEND_ORIENTATION = "h";
-  const FALLBACK_TRACE_COLOR = "#2f5d8a";
+  const FALLBACK_TRACE_COLOR = "#0072B2";
   const LINE_DASHES = ["solid", "dash", "dot", "dashdot"];
   const FIGURE_PRESETS = {
     "single-column": {

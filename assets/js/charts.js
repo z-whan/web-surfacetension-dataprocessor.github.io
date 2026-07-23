@@ -4,7 +4,29 @@
   const GRID_COLOR = "#d9d9d9";
   const FONT_FAMILY = "Arial, Helvetica, sans-serif";
   const TEXT_COLOR = "#1f1f1f";
-  const PALETTE = ["#2f5d8a", "#8a4f2f", "#3c7a5b", "#7a3c68", "#6a6a2f", "#2f6e73"];
+  // High-chroma, color-vision-friendly colors based on the Okabe-Ito palette.
+  // Keep every plot on this shared sequence so a series stays recognizable
+  // when it moves between analysis, comparison, and publication views.
+  const SERIES_PALETTE = Object.freeze([
+    "#0072B2",
+    "#D55E00",
+    "#009E73",
+    "#CC79A7",
+    "#E69F00",
+    "#56B4E9",
+    "#332288",
+    "#AA4499",
+  ]);
+  const CMC_COLORS = Object.freeze({
+    point: SERIES_PALETTE[0],
+    warning: SERIES_PALETTE[1],
+    curve: SERIES_PALETTE[6],
+    marker: SERIES_PALETTE[3],
+  });
+
+  function seriesColor(index) {
+    return SERIES_PALETTE[index % SERIES_PALETTE.length];
+  }
 
   function baseLayout(options) {
     const layout = {
@@ -123,7 +145,7 @@
       name: series.name,
       x: series.x,
       y: series.y,
-      line: { width: 1.8, color: PALETTE[index % PALETTE.length] },
+      line: { width: 1.8, color: seriesColor(index) },
       legendgroup,
     };
   }
@@ -143,7 +165,7 @@
       y: series.y,
       line: {
         width: 2.4,
-        color: PALETTE[index % PALETTE.length],
+        color: seriesColor(index),
         dash: "dash",
       },
       legendgroup,
@@ -175,7 +197,7 @@
       yaxis: "y2",
       line: {
         width: 1.2,
-        color: PALETTE[colorIndex % PALETTE.length],
+        color: seriesColor(colorIndex),
         dash: "dot",
       },
       opacity: 0.58,
@@ -250,7 +272,7 @@
       name: series.name,
       x: series.x,
       y: series.y,
-      line: { width: 2, color: PALETTE[index % PALETTE.length] },
+      line: { width: 2, color: seriesColor(index) },
     }));
 
     await Plotly.react(
@@ -289,7 +311,7 @@
         yaxis,
         line: {
           width: isVolume ? 1.4 : 2,
-          color: PALETTE[index % PALETTE.length],
+          color: seriesColor(index),
           dash: isVolume ? "dot" : curve.dataType === "trend" ? "dash" : "solid",
         },
         opacity: isVolume ? 0.68 : undefined,
@@ -328,16 +350,18 @@
       hovertemplate: "%{text}<br>σ=%{y:.4f}<extra></extra>",
       marker: {
         size: 8,
-        color: payload.points.map((point) => Number(point.warningCount) > 0 ? "#b56a2a" : "#2f5d8a"),
+        color: payload.points.map((point) =>
+          Number(point.warningCount) > 0 ? CMC_COLORS.warning : CMC_COLORS.point
+        ),
         symbol: payload.points.map((point) => Number(point.warningCount) > 0 ? "diamond" : "circle"),
         line: { width: 1, color: "#ffffff" },
       },
-      line: { width: 2.2, color: "#8a4f2f" },
+      line: { width: 2.2, color: CMC_COLORS.curve },
       error_y: {
         type: "data",
         array: payload.points.map((point) => point.error || 0),
         visible: true,
-        color: "#2f5d8a",
+        color: CMC_COLORS.point,
         thickness: 1.2,
         width: 5,
       },
@@ -359,7 +383,7 @@
           hovertemplate: "%{x}, σ=%{y:.4f}<extra></extra>",
           line: {
             width: 2,
-            color: PALETTE[(index + 2) % PALETTE.length],
+            color: seriesColor(index + 2),
             dash: "dash",
           },
         });
@@ -380,7 +404,7 @@
           "<br>σ=%{y:.4f}<extra></extra>",
         marker: {
           size: 11,
-          color: "#3c7a5b",
+          color: CMC_COLORS.marker,
           symbol: "diamond",
           line: { width: 1, color: "#ffffff" },
         },
@@ -406,7 +430,7 @@
           xref: "x",
           yref: "paper",
           line: {
-            color: "#3c7a5b",
+            color: CMC_COLORS.marker,
             width: 1.2,
             dash: "dot",
           },
@@ -494,5 +518,6 @@
     exportPlotAsPng,
     resolveSeriesYRange,
     resolveTimeSeriesYRange,
+    SERIES_PALETTE,
   };
 })();

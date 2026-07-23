@@ -23,6 +23,12 @@ require("../assets/js/charts.js");
 
 const charts = globalThis.SurfaceLabCharts;
 assert(charts, "SurfaceLabCharts should attach to globalThis");
+assert.strictEqual(charts.SERIES_PALETTE.length, 8);
+assert.strictEqual(
+  new Set(charts.SERIES_PALETTE).size,
+  charts.SERIES_PALETTE.length,
+  "plot palette colors should all be distinct"
+);
 
 (async () => {
   await charts.renderTimeSeriesPlot(
@@ -51,6 +57,9 @@ assert(charts, "SurfaceLabCharts should attach to globalThis");
   );
 
   assert.strictEqual(captured.data.length, 3);
+  assert.strictEqual(captured.data[0].line.color, charts.SERIES_PALETTE[0]);
+  assert.strictEqual(captured.data[1].line.color, charts.SERIES_PALETTE[0]);
+  assert.strictEqual(captured.data[2].line.color, charts.SERIES_PALETTE[0]);
   assert.strictEqual(captured.data[0].line.dash, undefined, "raw surface tension should remain solid");
   assert.strictEqual(captured.data[1].line.dash, "dash", "trend trace should remain dashed");
   assert.strictEqual(captured.data[2].yaxis, "y2");
@@ -131,6 +140,8 @@ assert(charts, "SurfaceLabCharts should attach to globalThis");
   );
 
   assert.strictEqual(captured.data.length, 2);
+  assert.strictEqual(captured.data[0].line.color, charts.SERIES_PALETTE[0]);
+  assert.strictEqual(captured.data[1].line.color, charts.SERIES_PALETTE[1]);
   assert.strictEqual(captured.data[0].line.dash, "solid");
   assert.strictEqual(captured.data[1].yaxis, "y2");
   assert.strictEqual(captured.data[1].line.dash, "dot");
@@ -149,6 +160,8 @@ assert(charts, "SurfaceLabCharts should attach to globalThis");
   );
   assert.strictEqual(captured.data.length, 1);
   assert.strictEqual(captured.data[0].name, undefined);
+  assert.strictEqual(captured.data[0].marker.color[0], charts.SERIES_PALETTE[0]);
+  assert.strictEqual(captured.data[0].marker.color[1], charts.SERIES_PALETTE[1]);
   assert.strictEqual(captured.data[0].marker.symbol[1], "diamond");
   assert.strictEqual(captured.layout.yaxis.title.text, "Surface tension σ (mN/m)");
   assert(captured.data[0].hovertemplate.includes("σ=%{y:.4f}"));

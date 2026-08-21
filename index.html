@@ -13,7 +13,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="./assets/icons/favicon-32.png?v=20260424b" />
     <link rel="apple-touch-icon" sizes="180x180" href="./assets/icons/apple-touch-icon.png?v=20260424b" />
     <link rel="manifest" href="./site.webmanifest?v=20260424b" />
-    <link rel="stylesheet" href="./assets/css/main.css?v=20260515b" />
+    <link rel="stylesheet" href="./assets/css/main.css?v=20260821a" />
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
     <script src="./assets/js/config.js?v=20260424a" defer></script>
     <script src="./assets/js/python-sources.js?v=20260515b" defer></script>
@@ -21,11 +21,11 @@
     <script src="./assets/js/downloads.js?v=20260501a" defer></script>
     <script src="./assets/js/session-manager.js?v=20260501b" defer></script>
     <script src="./assets/js/cmc-workflow.js?v=20260515b" defer></script>
-    <script src="./assets/js/charts.js?v=20260723a" defer></script>
-    <script src="./assets/js/publication-plot.js?v=20260723a" defer></script>
+    <script src="./assets/js/charts.js?v=20260821a" defer></script>
+    <script src="./assets/js/publication-plot.js?v=20260821a" defer></script>
     <script src="./assets/js/pyodide-client.js?v=20260424a" defer></script>
-    <script src="./assets/js/time-series-module.js?v=20260501d" defer></script>
-    <script src="./assets/js/compare-module.js?v=20260501c" defer></script>
+    <script src="./assets/js/time-series-module.js?v=20260821a" defer></script>
+    <script src="./assets/js/compare-module.js?v=20260821a" defer></script>
     <script src="./assets/js/app.js?v=20260515c" defer></script>
   </head>
   <body>
@@ -144,6 +144,15 @@
                   >
                     Analyze and Plot
                   </button>
+                  <label
+                    class="plot-style-switch"
+                    for="plot-scientific-style"
+                    title="Centered moving average with local ±1 SD error bars; raw surface-tension traces only."
+                  >
+                    <input id="plot-scientific-style" type="checkbox" />
+                    <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+                    <span>Smooth + Error Bars</span>
+                  </label>
                   <button id="plot-export" class="secondary-button" type="button" disabled>
                     Export PNG
                   </button>
@@ -334,6 +343,15 @@
                 <button id="compare-plot" class="primary-button" type="button">
                   Plot Selected
                 </button>
+                <label
+                  class="plot-style-switch"
+                  for="compare-scientific-style"
+                  title="Centered moving average with local ±1 SD error bars; raw surface-tension traces only."
+                >
+                  <input id="compare-scientific-style" type="checkbox" />
+                  <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+                  <span>Smooth + Error Bars</span>
+                </label>
                 <button id="compare-export" class="secondary-button" type="button" disabled>
                   Export PNG
                 </button>
@@ -808,6 +826,15 @@
                   </div>
                   <div class="publication-style-warning" data-publication-style-warning hidden></div>
                   <div class="button-row">
+                    <label
+                      class="plot-style-switch"
+                      for="publication-scientific-style"
+                      title="Centered moving average with local ±1 SD error bars; raw surface-tension traces only."
+                    >
+                      <input id="publication-scientific-style" type="checkbox" disabled />
+                      <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+                      <span>Smooth + Error Bars</span>
+                    </label>
                     <button id="publication-undo-style" class="ghost-button compact-button" type="button" disabled>
                       Undo Style Change
                     </button>

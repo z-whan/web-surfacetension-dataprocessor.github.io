@@ -28,6 +28,161 @@
     return SERIES_PALETTE[index % SERIES_PALETTE.length];
   }
 
+  function scientificWindowSize(length) {
+    const count = Math.max(0, Number(length) || 0);
+    if (count < 3) {
+      return 1;
+    }
+    let windowSize = Math.max(5, Math.min(31, Math.round(count * 0.05)));
+    if (windowSize % 2 === 0) {
+      windowSize += 1;
+    }
+    const largestOdd = count % 2 === 0 ? count - 1 : count;
+    return Math.max(3, Math.min(windowSize, largestOdd));
+  }
+
+  function buildScientificSeries(values) {
+    const source = Array.isArray(values) ? values : [];
+    const windowSize = scientificWindowSize(source.length);
+    const halfWindow = Math.floor(windowSize / 2);
+    const errorStep = Math.max(1, Math.ceil(source.length / 24));
+    const y = [];
+    const error = [];
+
+    source.forEach((value, index) => {
+      const samples = [];
+      const start = Math.max(0, index - halfWindow);
+      const end = Math.min(source.length - 1, index + halfWindow);
+      for (let sampleIndex = start; sampleIndex <= end; sampleIndex += 1) {
+        const numeric = Number(source[sampleIndex]);
+        if (Number.isFinite(numeric)) {
+          samples.push(numeric);
+        }
+      }
+
+      if (!samples.length) {
+        y.push(null);
+        error.push(null);
+        return;
+      }
+
+      const mean = samples.reduce((sum, sample) => sum + sample, 0) / samples.length;
+      const variance = samples.length > 1
+        ? samples.reduce((sum, sample) => sum + Math.pow(sample - mean, 2), 0) / (samples.length - 1)
+        : 0;
+      y.push(mean);
+      error.push(index % errorStep === 0 || index === source.length - 1 ? Math.sqrt(variance) : null);
+    });
+
+    return { y, error, windowSize };
+  }
+
+  function surfaceLabMeta(trace) {
+    const meta = trace && trace.meta;
+    return meta && typeof meta === "object" && !Array.isArray(meta) && meta.surfaceLab
+      ? meta.surfaceLab
+      : null;
+  }
+
+  function isScientificSurfaceTensionTrace(trace) {
+    const meta = surfaceLabMeta(trace);
+    return Boolean(meta && meta.dataType === "surface-tension" && Array.isArray(meta.originalY));
+  }
+
+  function applyScientificTraceStyle(trace, enabled, originalY) {
+    if (!trace || typeof trace !== "object") {
+      return trace;
+    }
+    const existingMeta = trace.meta && typeof trace.meta === "object" && !Array.isArray(trace.meta)
+      ? trace.meta
+      : {};
+    const existingSurfaceLab = existingMeta.surfaceLab && typeof existingMeta.surfaceLab === "object"
+      ? existingMeta.surfaceLab
+      : {};
+    const rawY = Array.isArray(existingSurfaceLab.originalY)
+      ? existingSurfaceLab.originalY.slice()
+      : (Array.isArray(originalY) ? originalY.slice() : Array.isArray(trace.y) ? trace.y.slice() : []);
+    const baseLineShape = Object.prototype.hasOwnProperty.call(existingSurfaceLab, "baseLineShape")
+      ? existingSurfaceLab.baseLineShape
+      : (trace.line && Object.prototype.hasOwnProperty.call(trace.line, "shape") ? trace.line.shape : null);
+    const baseLineSmoothing = Object.prototype.hasOwnProperty.call(existingSurfaceLab, "baseLineSmoothing")
+      ? existingSurfaceLab.baseLineSmoothing
+      : (trace.line && Object.prototype.hasOwnProperty.call(trace.line, "smoothing") ? trace.line.smoothing : null);
+    const originalErrorY = Object.prototype.hasOwnProperty.call(existingSurfaceLab, "originalErrorY")
+      ? existingSurfaceLab.originalErrorY
+      : (trace.error_y ? JSON.parse(JSON.stringify(trace.error_y)) : null);
+
+    trace.meta = {
+      ...existingMeta,
+      surfaceLab: {
+        ...existingSurfaceLab,
+        dataType: "surface-tension",
+        originalY: rawY,
+        originalErrorY,
+        baseLineShape,
+        baseLineSmoothing,
+        scientificStyleEnabled: Boolean(enabled),
+      },
+    };
+    trace.line = trace.line || {};
+
+    if (enabled) {
+      const scientific = buildScientificSeries(rawY);
+      trace.y = scientific.y;
+      trace.line.shape = "spline";
+      trace.line.smoothing = 0.65;
+      trace.error_y = {
+        type: "data",
+        array: scientific.error,
+        visible: true,
+        color: trace.line.color || TEXT_COLOR,
+        thickness: 1.1,
+        width: 4,
+      };
+    } else {
+      trace.y = rawY;
+      if (baseLineShape === null || typeof baseLineShape === "undefined") {
+        delete trace.line.shape;
+      } else {
+        trace.line.shape = baseLineShape;
+      }
+      if (baseLineSmoothing === null || typeof baseLineSmoothing === "undefined") {
+        delete trace.line.smoothing;
+      } else {
+        trace.line.smoothing = baseLineSmoothing;
+      }
+      if (originalErrorY) {
+        trace.error_y = JSON.parse(JSON.stringify(originalErrorY));
+      } else {
+        delete trace.error_y;
+      }
+    }
+    return trace;
+  }
+
+  function scientificRangeSeries(seriesList) {
+    return seriesList.map((series) => {
+      const scientific = buildScientificSeries(series.y);
+      const rangeValues = [];
+      scientific.y.forEach((value, index) => {
+        const numeric = Number(value);
+        const deviation = Number(scientific.error[index]);
+        if (!Number.isFinite(numeric)) {
+          return;
+        }
+        rangeValues.push(numeric);
+        if (Number.isFinite(deviation)) {
+          rangeValues.push(numeric - deviation, numeric + deviation);
+        }
+      });
+      return { y: rangeValues };
+    });
+  }
+
+  function resolveScientificSeriesYRange(seriesList, options) {
+    return resolveSeriesYRange(scientificRangeSeries(seriesList), options);
+  }
+
   function baseLayout(options) {
     const layout = {
       title: { text: options.title, font: { size: 18, family: FONT_FAMILY, color: TEXT_COLOR } },
@@ -130,9 +285,12 @@
   function resolveTimeSeriesYRange(rawPayload, options) {
     const opts = options || {};
     const trendPayload = opts.trendPayload || null;
-    const rangeSeries = trendPayload
-      ? rawPayload.series.concat(trendPayload.series)
+    const rawRangeSeries = opts.scientificStyle
+      ? scientificRangeSeries(rawPayload.series)
       : rawPayload.series;
+    const rangeSeries = trendPayload
+      ? rawRangeSeries.concat(trendPayload.series)
+      : rawRangeSeries;
     return resolveSeriesYRange(rangeSeries, opts);
   }
 
@@ -224,7 +382,11 @@
       if (!showRaw && isOriginalExperimentSeries(series)) {
         return;
       }
-      const trace = buildRawTrace(series, index);
+      const trace = applyScientificTraceStyle(
+        buildRawTrace(series, index),
+        Boolean(opts.scientificStyle),
+        series.y
+      );
       if (trendPayload) {
         trace.line.width = 1.4;
         trace.opacity = 0.55;
@@ -302,7 +464,7 @@
       const hoverSelection = domUtils.escapeHtml(curve.selection || "");
       const isVolume = curve.dataType === "volume" || curve.yAxis === "y2";
       const yaxis = isVolume && hasPrimaryCurves ? "y2" : undefined;
-      return {
+      const trace = {
         type: "scatter",
         mode: "lines",
         name: label,
@@ -317,7 +479,16 @@
         opacity: isVolume ? 0.68 : undefined,
         hovertemplate: hoverLabel + "<br>" + hoverSelection + "<br>%{x}, %{y:.4f}<extra></extra>",
       };
+      if (!isVolume && curve.dataType !== "trend") {
+        applyScientificTraceStyle(trace, Boolean(opts.scientificStyle), curve.y);
+      }
+      return trace;
     });
+
+    const rangeCurves = opts.scientificStyle && hasPrimaryCurves
+      ? scientificRangeSeries(primaryRangeCurves.filter((curve) => curve.dataType !== "trend"))
+          .concat(primaryRangeCurves.filter((curve) => curve.dataType === "trend"))
+      : primaryRangeCurves;
 
     await Plotly.react(
       target,
@@ -328,7 +499,7 @@
         title: "Compare",
         xScale: "linear",
         yScale: "linear",
-        yRange: resolveSeriesYRange(primaryRangeCurves, opts),
+        yRange: resolveSeriesYRange(rangeCurves, opts),
         secondaryY: hasPrimaryCurves && hasVolumeCurves,
         secondaryYLabel: opts.secondaryYLabel || "Droplet volume, V (μL)",
       }),
@@ -517,7 +688,12 @@
     exportPlotImage,
     exportPlotAsPng,
     resolveSeriesYRange,
+    resolveScientificSeriesYRange,
     resolveTimeSeriesYRange,
+    buildScientificSeries,
+    scientificRangeSeries,
+    applyScientificTraceStyle,
+    isScientificSurfaceTensionTrace,
     SERIES_PALETTE,
   };
 })();

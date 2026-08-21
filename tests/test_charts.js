@@ -72,6 +72,40 @@ assert.strictEqual(
     {
       xLabel: "Time (ms)",
       series: [
+        { name: "Exp 1 σ", experimentIndex: 1, x: [1, 2, 3, 4, 5, 6, 7], y: [70, 73, 69, 74, 68, 72, 70] },
+      ],
+      volumeOverlay: {
+        yLabel: "Droplet volume, V (μL)",
+        series: [
+          { name: "Exp 1 V", experimentIndex: 1, x: [1, 2, 3, 4, 5, 6, 7], y: [11, 10.9, 10.8, 10.7, 10.6, 10.5, 10.4] },
+        ],
+      },
+    },
+    {
+      scientificStyle: true,
+      showVolumeOverlay: true,
+    }
+  );
+
+  assert.strictEqual(captured.data[0].line.shape, "spline");
+  assert.strictEqual(captured.data[0].error_y.visible, true);
+  assert.strictEqual(captured.data[0].meta.surfaceLab.dataType, "surface-tension");
+  assert.strictEqual(captured.data[0].meta.surfaceLab.scientificStyleEnabled, true);
+  assert.notDeepStrictEqual(captured.data[0].y, captured.data[0].meta.surfaceLab.originalY);
+  assert.strictEqual(captured.data[1].error_y, undefined, "volume traces must not receive error bars");
+  assert.strictEqual(captured.data[1].line.shape, undefined, "volume traces must not be smoothed");
+
+  const scientificTrace = captured.data[0];
+  charts.applyScientificTraceStyle(scientificTrace, false);
+  assert.deepStrictEqual(scientificTrace.y, [70, 73, 69, 74, 68, 72, 70]);
+  assert.strictEqual(scientificTrace.error_y, undefined);
+  assert.strictEqual(scientificTrace.line.shape, undefined);
+
+  await charts.renderTimeSeriesPlot(
+    {},
+    {
+      xLabel: "Time (ms)",
+      series: [
         { name: "Exp 1 σ", experimentIndex: 1, x: [1000, 2000], y: [70, 71] },
       ],
       volumeOverlay: {
@@ -147,6 +181,52 @@ assert.strictEqual(
   assert.strictEqual(captured.data[1].line.dash, "dot");
   assert.strictEqual(captured.layout.yaxis.title.text, "I.T. (mN/m)");
   assert.strictEqual(captured.layout.yaxis2.title.text, "Droplet volume, V (μL)");
+
+  await charts.renderComparePlot(
+    {},
+    [
+      {
+        displayIndex: 1,
+        displayLabel: "surface",
+        selection: "Exp 1 σ",
+        dataType: "raw",
+        x: [1, 2, 3, 4, 5],
+        y: [70, 72, 69, 73, 71],
+      },
+      {
+        displayIndex: 2,
+        displayLabel: "trend",
+        selection: "Exp 1 trend",
+        dataType: "trend",
+        x: [1, 2, 3, 4, 5],
+        y: [70, 70.5, 71, 71.5, 72],
+      },
+    ],
+    { scientificStyle: true }
+  );
+  assert.strictEqual(captured.data[0].line.shape, "spline");
+  assert.strictEqual(captured.data[0].error_y.visible, true);
+  assert.strictEqual(captured.data[1].line.shape, undefined, "derived trend traces stay unchanged");
+  assert.strictEqual(captured.data[1].error_y, undefined, "derived trend traces do not gain error bars");
+
+  await charts.renderComparePlot(
+    {},
+    [
+      {
+        displayIndex: 1,
+        displayLabel: "volume",
+        selection: "Exp 1 V",
+        dataType: "volume",
+        yAxis: "y2",
+        x: [1, 2, 3],
+        y: [11, 10.5, 10],
+      },
+    ],
+    { scientificStyle: true }
+  );
+  assert.strictEqual(captured.data[0].line.shape, undefined);
+  assert.strictEqual(captured.data[0].error_y, undefined);
+  assert.deepStrictEqual(captured.layout.yaxis.range, [10, 11]);
 
   await charts.renderCmcPlot(
     {},

@@ -130,6 +130,7 @@
         nextDisplayIndex: 1,
         lastPlottedIds: [],
         manualYRange: null,
+        scientificStyle: false,
         labelUpdateTimer: null,
       };
 
@@ -149,6 +150,7 @@
         yMin: document.querySelector("#compare-y-min"),
         yMax: document.querySelector("#compare-y-max"),
         selectAll: document.querySelector("#compare-select-all"),
+        scientificStyle: document.querySelector("#compare-scientific-style"),
       };
     }
 
@@ -220,6 +222,17 @@
 
       this.dom.plotButton.addEventListener("click", () => {
         this.plotSelected();
+      });
+      this.dom.scientificStyle.addEventListener("change", () => {
+        this.state.scientificStyle = Boolean(this.dom.scientificStyle.checked);
+        if (this.state.lastPlottedIds.length) {
+          this.plotSelected({ quiet: true });
+        }
+        this.setStatus(
+          this.state.scientificStyle
+            ? "Scientific plot style enabled for raw surface-tension traces (moving average ± local SD)."
+            : "Point-to-point compare style restored."
+        );
       });
       this.dom.removeSelectedButton.addEventListener("click", () => {
         this.removeCurves(Array.from(this.state.selectedIds));
@@ -377,6 +390,7 @@
         secondaryYLabel: "Droplet volume, V (μL)",
         ySpanPercent: this.currentYSpanPercent(),
         explicitYRange: this.state.manualYRange,
+        scientificStyle: this.state.scientificStyle,
       });
       this.state.lastPlottedIds = valid.map((curve) => curve.id);
       this.dom.exportButton.disabled = false;
@@ -477,7 +491,13 @@
         return null;
       }
       const primary = selected.filter((curve) => curve.dataType !== "volume" && curve.yAxis !== "y2");
-      return this.charts.resolveSeriesYRange(primary.length ? primary : selected, {
+      let rangeSeries = primary.length ? primary : selected;
+      if (primary.length && this.state.scientificStyle && this.charts.scientificRangeSeries) {
+        rangeSeries = this.charts.scientificRangeSeries(
+          primary.filter((curve) => curve.dataType !== "trend")
+        ).concat(primary.filter((curve) => curve.dataType === "trend"));
+      }
+      return this.charts.resolveSeriesYRange(rangeSeries, {
         ySpanPercent: this.currentYSpanPercent(),
       });
     }
@@ -610,6 +630,9 @@
           yMinText: this.dom.yMin ? this.dom.yMin.value : "",
           yMaxText: this.dom.yMax ? this.dom.yMax.value : "",
         },
+        plotStyle: {
+          scientificStyle: Boolean(this.state.scientificStyle),
+        },
       };
     }
 
@@ -652,6 +675,9 @@
       });
 
       const yAxis = input.yAxis && typeof input.yAxis === "object" ? input.yAxis : {};
+      const plotStyle = input.plotStyle && typeof input.plotStyle === "object" ? input.plotStyle : {};
+      this.state.scientificStyle = Boolean(plotStyle.scientificStyle);
+      this.dom.scientificStyle.checked = this.state.scientificStyle;
       if (this.dom.ySpan && Number.isFinite(Number(yAxis.spanPercent))) {
         this.dom.ySpan.value = String(yAxis.spanPercent);
       }

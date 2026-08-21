@@ -457,6 +457,7 @@
           height: DEFAULT_HEIGHT,
         },
         defaultTraceStyles: [],
+        scientificStyleEnabled: false,
         styleMeta: createStyleMeta(),
       };
       this.styleHistory = [];
@@ -468,6 +469,7 @@
         styleTemplate: document.querySelector("#publication-style-template"),
         activeStyle: document.querySelector("[data-publication-active-style]"),
         styleWarning: document.querySelector("[data-publication-style-warning]"),
+        scientificStyle: document.querySelector("#publication-scientific-style"),
         undoStyle: document.querySelector("#publication-undo-style"),
         title: document.querySelector("#publication-title"),
         titleClear: document.querySelector("#publication-title-clear"),
@@ -506,6 +508,7 @@
       this.bindLayoutControls();
       this.bindPresetControls();
       this.bindTraceControls();
+      this.dom.scientificStyle.addEventListener("change", () => this.applyScientificStyle());
       this.dom.resetAxes.addEventListener("click", () => this.resetAxisAutorange());
       this.dom.exportPng.addEventListener("click", () => this.exportFigure("png"));
       this.dom.exportSvg.addEventListener("click", () => this.exportFigure("svg"));
@@ -516,10 +519,18 @@
       return Array.isArray(this.state.data) && this.state.data.length > 0;
     }
 
+    hasScientificSurfaceTensionTraces() {
+      return this.hasFigure() && this.state.data.some((trace) =>
+        this.charts.isScientificSurfaceTensionTrace(trace)
+      );
+    }
+
     syncEnabledState() {
       const enabled = this.hasFigure();
       this.dom.exportPng.disabled = !enabled;
       this.dom.exportSvg.disabled = !enabled;
+      this.dom.scientificStyle.disabled = !enabled || !this.hasScientificSurfaceTensionTraces();
+      this.dom.scientificStyle.checked = Boolean(this.state.scientificStyleEnabled);
       [
         this.dom.figurePreset,
         this.dom.styleTemplate,
@@ -588,6 +599,7 @@
         layout: deepCopy(this.state.layout),
         exportSettings: deepCopy(this.state.exportSettings),
         styleMeta: deepCopy(this.state.styleMeta),
+        scientificStyleEnabled: Boolean(this.state.scientificStyleEnabled),
       });
       if (this.styleHistory.length > 8) {
         this.styleHistory.shift();
@@ -614,6 +626,10 @@
         config: deepCopy(copiedConfig),
       };
       const copiedData = deepCopy(figurePayload.data);
+      const scientificStyleEnabled = copiedData.some((trace) => {
+        const surfaceLab = trace && trace.meta && trace.meta.surfaceLab;
+        return Boolean(surfaceLab && surfaceLab.scientificStyleEnabled);
+      });
       const sourceRect = source.getBoundingClientRect ? source.getBoundingClientRect() : null;
       const width = toFiniteNumber(layout.width, Math.round(sourceRect && sourceRect.width ? sourceRect.width : DEFAULT_WIDTH));
       const height = toFiniteNumber(layout.height, Math.round(sourceRect && sourceRect.height ? sourceRect.height : DEFAULT_HEIGHT));
@@ -642,6 +658,7 @@
         defaultLayout: deepCopy(publicationLayout),
         defaultExportSettings: deepCopy(exportSettings),
         defaultTraceStyles: cloneTraceStyles(copiedData),
+        scientificStyleEnabled,
         styleMeta: createStyleMeta(),
       };
       this.styleHistory = [];
@@ -656,6 +673,39 @@
       this.setPublicationStatus(`Figure copied from ${this.state.sourceTitle}.`);
       this.setStatus(`Figure copied from ${this.state.sourceTitle}.`);
       return true;
+    }
+
+    async applyScientificStyle() {
+      if (!this.hasScientificSurfaceTensionTraces()) {
+        this.dom.scientificStyle.checked = false;
+        this.state.scientificStyleEnabled = false;
+        this.setPublicationStatus("This figure has no eligible raw surface-tension traces.");
+        return;
+      }
+
+      const enabled = Boolean(this.dom.scientificStyle.checked);
+      this.state.data.forEach((trace) => {
+        if (this.charts.isScientificSurfaceTensionTrace(trace)) {
+          this.charts.applyScientificTraceStyle(trace, enabled);
+        }
+      });
+      this.state.scientificStyleEnabled = enabled;
+      this.renderTraceControls();
+      await this.render();
+      this.syncEnabledState();
+      this.setPublicationStatus(
+        enabled
+          ? "Scientific style applied to raw surface-tension traces (moving average ± local SD)."
+          : "Point-to-point style restored for raw surface-tension traces."
+      );
+    }
+
+    reapplyScientificStyleState() {
+      this.state.data.forEach((trace) => {
+        if (this.charts.isScientificSurfaceTensionTrace(trace)) {
+          this.charts.applyScientificTraceStyle(trace, this.state.scientificStyleEnabled);
+        }
+      });
     }
 
     syncControlsFromFigure() {
@@ -986,6 +1036,7 @@
       this.state.layout = defaults.layout;
       this.state.exportSettings = defaults.exportSettings;
       this.state.data.forEach((trace, index) => restoreTraceStyles(trace, this.state.defaultTraceStyles[index]));
+      this.reapplyScientificStyleState();
       this.state.styleMeta.currentPreset = "default";
       this.state.styleMeta.currentTemplate = "default";
       this.state.styleMeta.manualLayoutEdited = false;
@@ -1035,6 +1086,7 @@
       this.state.layout = deepCopy(snapshot.layout);
       this.state.exportSettings = deepCopy(snapshot.exportSettings);
       this.state.styleMeta = createStyleMeta(snapshot.styleMeta);
+      this.state.scientificStyleEnabled = Boolean(snapshot.scientificStyleEnabled);
       this.syncControlsFromFigure();
       this.renderTraceControls();
       await this.render();
@@ -1104,6 +1156,7 @@
       }
       this.pushStyleSnapshot("trace style reset");
       this.state.data.forEach((trace, index) => restoreTraceStyles(trace, this.state.defaultTraceStyles[index]));
+      this.reapplyScientificStyleState();
       this.state.styleMeta.templateModified = Boolean(this.state.styleMeta.currentTemplate);
       this.setStyleWarning("");
       this.renderTraceControls();
@@ -1234,6 +1287,10 @@
         }
         trace.line.color = input.value;
         update["line.color"] = input.value;
+        if (trace.error_y && this.state.scientificStyleEnabled && this.charts.isScientificSurfaceTensionTrace(trace)) {
+          trace.error_y.color = input.value;
+          update["error_y.color"] = input.value;
+        }
       } else if (field === "line-width") {
         if (!trace.line) {
           trace.line = {};
@@ -1338,6 +1395,11 @@
         defaultLayout,
         defaultExportSettings,
         defaultTraceStyles,
+        scientificStyleEnabled: typeof input.scientificStyleEnabled === "boolean"
+          ? input.scientificStyleEnabled
+          : data.some((trace) => Boolean(
+              trace && trace.meta && trace.meta.surfaceLab && trace.meta.surfaceLab.scientificStyleEnabled
+            )),
         styleMeta: createStyleMeta(input.styleMeta),
       };
       this.styleHistory = [];

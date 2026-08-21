@@ -448,6 +448,7 @@
         qualityPayload: null,
         showRaw: true,
         showVolumeOverlay: false,
+        scientificStyle: false,
         manualYRange: null,
       };
 
@@ -460,6 +461,7 @@
         plotAvgOnly: document.querySelector("#plot-avg-only"),
         plotAvgShowOriginal: document.querySelector("#plot-avg-show-original"),
         plotVolumeOverlay: document.querySelector("#plot-volume-overlay"),
+        plotScientificStyle: document.querySelector("#plot-scientific-style"),
         plotAnalyze: document.querySelector("#plot-run"),
         plotMarkCompare: document.querySelector("#plot-mark-compare"),
         plotExport: document.querySelector("#plot-export"),
@@ -518,6 +520,7 @@
       this.dom.plotAvgOnly.addEventListener("change", () => this.handleAvgOnlyChange());
       this.dom.plotAvgShowOriginal.addEventListener("change", () => this.handleOriginalSeriesChange());
       this.dom.plotVolumeOverlay.addEventListener("change", () => this.handleVolumeOverlayChange());
+      this.dom.plotScientificStyle.addEventListener("change", () => this.handleScientificStyleChange());
       this.dom.trendMethod.addEventListener("change", () => {
         renderParameterFields(this.dom.trendParams, TREND_METHODS[this.dom.trendMethod.value]);
       });
@@ -615,6 +618,7 @@
       this.state.qualityPayload = null;
       this.state.showRaw = true;
       this.state.showVolumeOverlay = false;
+      this.state.scientificStyle = Boolean(this.dom.plotScientificStyle.checked);
       this.state.manualYRange = null;
       this.setOriginalSeriesVisible(true);
       this.dom.plotVolumeOverlay.checked = false;
@@ -642,6 +646,7 @@
       this.state.qualityPayload = null;
       this.state.showRaw = true;
       this.state.showVolumeOverlay = false;
+      this.state.scientificStyle = false;
       this.state.manualYRange = null;
 
       this.dom.plotStart.value = "";
@@ -650,6 +655,7 @@
       this.dom.plotAvgOnly.checked = false;
       this.setOriginalSeriesVisible(true);
       this.dom.plotVolumeOverlay.checked = false;
+      this.dom.plotScientificStyle.checked = false;
 
       const defaultTrendMethod = Object.keys(TREND_METHODS)[0];
       if (defaultTrendMethod) {
@@ -707,6 +713,18 @@
       if (this.state.rawPayload) {
         this.renderCurrentPlot();
         this.renderVolumeOverlayStatus();
+      }
+    }
+
+    handleScientificStyleChange() {
+      this.state.scientificStyle = Boolean(this.dom.plotScientificStyle.checked);
+      if (this.state.rawPayload) {
+        this.renderCurrentPlot();
+        this.setStatus(
+          this.state.scientificStyle
+            ? "Scientific plot style enabled for raw surface-tension traces (moving average ± local SD)."
+            : "Point-to-point plot style restored."
+        );
       }
     }
 
@@ -942,6 +960,7 @@
 
       return this.charts.resolveTimeSeriesYRange(this.state.rawPayload, {
         trendPayload: this.state.trendPayload,
+        scientificStyle: this.state.scientificStyle,
         ySpanPercent: this.currentYSpanPercent(),
       });
     }
@@ -1308,6 +1327,7 @@
         trendPayload: this.state.trendPayload,
         showRaw: this.state.showRaw,
         showVolumeOverlay: this.state.showVolumeOverlay,
+        scientificStyle: this.state.scientificStyle,
         ySpanPercent: this.currentYSpanPercent(),
         // The slider remains an automatic span tool. Manual input boxes can
         // override the plotted range without forcing the slider to re-sync.
@@ -1395,6 +1415,9 @@
           methodKey: this.dom.noiseMethod.value,
           parameters: noiseDefinition ? collectParameters(this.dom.noiseParams, noiseDefinition) : {},
         },
+        plotStyle: {
+          scientificStyle: Boolean(this.state.scientificStyle),
+        },
         yAxis: {
           spanPercent: this.currentYSpanPercent(),
           manualRange: this.state.manualYRange ? this.state.manualYRange.slice() : null,
@@ -1411,6 +1434,7 @@
       const trend = isPlainObject(input.trend) ? input.trend : {};
       const noise = isPlainObject(input.noise) ? input.noise : {};
       const yAxis = isPlainObject(input.yAxis) ? input.yAxis : {};
+      const plotStyle = isPlainObject(input.plotStyle) ? input.plotStyle : {};
 
       this.state.file = null;
       this.state.rawPayload = null;
@@ -1419,6 +1443,7 @@
       this.state.noisePayload = null;
       this.state.qualityPayload = null;
       this.state.showRaw = typeof trend.showRaw === "boolean" ? trend.showRaw : true;
+      this.state.scientificStyle = Boolean(plotStyle.scientificStyle);
       this.state.manualYRange = Array.isArray(yAxis.manualRange)
         ? yAxis.manualRange.map((value) => Number(value)).filter((value) => Number.isFinite(value)).slice(0, 2)
         : null;
@@ -1432,6 +1457,7 @@
       this.dom.plotExpRange.value = typeof selection.expRangeText === "string" ? selection.expRangeText : "";
       this.dom.plotAvgOnly.checked = Boolean(selection.avgOnly);
       this.dom.plotAvgShowOriginal.checked = Boolean(selection.showOriginalWithAvg);
+      this.dom.plotScientificStyle.checked = this.state.scientificStyle;
       this.syncAvgOverlayOption();
 
       if (typeof trend.methodKey === "string" && TREND_METHODS[trend.methodKey]) {

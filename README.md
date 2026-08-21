@@ -35,6 +35,10 @@ the current session and are not uploaded to a project backend.
   evaporation, flags, and manual Used overrides.
 - Fit concentration-level CMC/CAC transitions with pure numpy/pandas models.
 - Export PNG, SVG, JSON provenance, or send a plot to the Publication Plot tab.
+- Switch raw surface-tension traces between point-to-point lines and a scientific
+  centered-moving-average style with sparse local ±1 SD error bars. The switch is
+  available in Time Series, Compare, and Publication Plot; volume and derived traces
+  are left unchanged.
 - Style plots for papers, posters, and presentations without changing the
   source analysis data.
 

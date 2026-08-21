@@ -80,12 +80,26 @@
     });
   }
 
+  function nullableNumericArray(values) {
+    if (!Array.isArray(values)) {
+      return [];
+    }
+    return values.map((value) => {
+      if (value === null || typeof value === "undefined" || value === "") {
+        return null;
+      }
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? numberValue : null;
+    });
+  }
+
   function sanitizeImportedCurve(curve, fallbackIndex) {
     if (!curve || typeof curve !== "object") {
       return null;
     }
     const x = numericArray(curve.x);
     const y = numericArray(curve.y);
+    const error = Array.isArray(curve.error) ? nullableNumericArray(curve.error) : null;
     if (!x.length || x.length !== y.length) {
       return null;
     }
@@ -108,6 +122,8 @@
       yLabel: String(curve.yLabel || "I.T. (mN/m)"),
       x,
       y,
+      error,
+      errorKind: String(curve.errorKind || ""),
       points: y.length,
       displayIndex,
       displayLabel: String(curve.displayLabel || `#${displayIndex}`),
@@ -230,7 +246,7 @@
         }
         this.setStatus(
           this.state.scientificStyle
-            ? "Scientific plot style enabled for raw surface-tension traces (moving average ± local SD)."
+            ? "Scientific plot style enabled (edge-safe local fit; replicate SD when available)."
             : "Point-to-point compare style restored."
         );
       });

@@ -1180,6 +1180,9 @@ class WebBridgeTests(unittest.TestCase):
             self.assertEqual(payload["summary"]["seriesCount"], 1)
             self.assertEqual(payload["series"][0]["name"], "Avg (1-2)")
             self.assertEqual(payload["series"][0]["y"], [15.0, 17.0, 19.0])
+            self.assertEqual(payload["series"][0]["errorKind"], "replicate-sd")
+            for value in payload["series"][0]["error"]:
+                self.assertAlmostEqual(value, np.sqrt(50.0))
         finally:
             os.unlink(path)
 
@@ -1199,6 +1202,9 @@ class WebBridgeTests(unittest.TestCase):
             self.assertEqual(payload["summary"]["seriesCount"], 3)
             self.assertEqual([series["name"] for series in payload["series"]], ["I.T.(mN/m).1", "I.T.(mN/m).2", "Avg (1-2)"])
             self.assertEqual(payload["series"][-1]["y"], [15.0, 17.0, 19.0])
+            self.assertNotIn("error", payload["series"][0])
+            self.assertNotIn("error", payload["series"][1])
+            self.assertEqual(payload["series"][-1]["errorKind"], "replicate-sd")
         finally:
             os.unlink(path)
 

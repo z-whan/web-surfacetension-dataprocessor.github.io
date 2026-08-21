@@ -28,12 +28,20 @@
     return SERIES_PALETTE[index % SERIES_PALETTE.length];
   }
 
+  function finiteNumberOrNull(value) {
+    if (value === null || typeof value === "undefined" || value === "") {
+      return null;
+    }
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
   function scientificWindowSize(length) {
     const count = Math.max(0, Number(length) || 0);
     if (count < 3) {
       return 1;
     }
-    let windowSize = Math.max(5, Math.min(31, Math.round(count * 0.05)));
+    let windowSize = Math.max(5, Math.min(21, Math.round(count * 0.01)));
     if (windowSize % 2 === 0) {
       windowSize += 1;
     }
@@ -41,40 +49,120 @@
     return Math.max(3, Math.min(windowSize, largestOdd));
   }
 
-  function buildScientificSeries(values) {
+  function numericXValues(values, length) {
     const source = Array.isArray(values) ? values : [];
-    const windowSize = scientificWindowSize(source.length);
-    const halfWindow = Math.floor(windowSize / 2);
-    const errorStep = Math.max(1, Math.ceil(source.length / 24));
-    const y = [];
-    const error = [];
+    return Array.from({ length }, (_, index) => {
+      const numeric = finiteNumberOrNull(source[index]);
+      return numeric === null ? index : numeric;
+    });
+  }
 
-    source.forEach((value, index) => {
+  function localLinearSmooth(xValues, values, windowSize) {
+    const source = Array.isArray(values) ? values : [];
+    const x = numericXValues(xValues, source.length);
+    const halfWindow = Math.floor(windowSize / 2);
+
+    return source.map((value, index) => {
+      const radius = Math.min(halfWindow, index, source.length - 1 - index);
+      if (radius === 0) {
+        return finiteNumberOrNull(value);
+      }
+      const start = index - radius;
+      const end = index + radius;
       const samples = [];
-      const start = Math.max(0, index - halfWindow);
-      const end = Math.min(source.length - 1, index + halfWindow);
       for (let sampleIndex = start; sampleIndex <= end; sampleIndex += 1) {
-        const numeric = Number(source[sampleIndex]);
-        if (Number.isFinite(numeric)) {
-          samples.push(numeric);
+        const numeric = finiteNumberOrNull(source[sampleIndex]);
+        if (numeric !== null) {
+          samples.push({ dx: x[sampleIndex] - x[index], y: numeric });
         }
       }
-
       if (!samples.length) {
-        y.push(null);
-        error.push(null);
-        return;
+        return null;
+      }
+      if (samples.length === 1) {
+        return samples[0].y;
       }
 
-      const mean = samples.reduce((sum, sample) => sum + sample, 0) / samples.length;
-      const variance = samples.length > 1
-        ? samples.reduce((sum, sample) => sum + Math.pow(sample - mean, 2), 0) / (samples.length - 1)
-        : 0;
-      y.push(mean);
-      error.push(index % errorStep === 0 || index === source.length - 1 ? Math.sqrt(variance) : null);
-    });
+      const scale = Math.max(...samples.map((sample) => Math.abs(sample.dx)));
+      let sumW = 0;
+      let sumWX = 0;
+      let sumWXX = 0;
+      let sumWY = 0;
+      let sumWXY = 0;
+      samples.forEach((sample) => {
+        const ratio = scale > 0 ? Math.min(0.999999, Math.abs(sample.dx) / scale) : 0;
+        const weight = Math.pow(1 - Math.pow(ratio, 3), 3);
+        sumW += weight;
+        sumWX += weight * sample.dx;
+        sumWXX += weight * sample.dx * sample.dx;
+        sumWY += weight * sample.y;
+        sumWXY += weight * sample.dx * sample.y;
+      });
 
-    return { y, error, windowSize };
+      const denominator = sumW * sumWXX - sumWX * sumWX;
+      if (Math.abs(denominator) < 1e-12) {
+        const currentValue = finiteNumberOrNull(value);
+        return sumW > 0 ? sumWY / sumW : currentValue;
+      }
+      // The intercept is the fitted value at the current time (dx = 0).
+      // Near the boundaries the symmetric window shrinks progressively, so
+      // the first and last observations stay unchanged instead of becoming
+      // one-sided averages of future or past values.
+      return (sumWY * sumWXX - sumWXY * sumWX) / denominator;
+    });
+  }
+
+  function localResidualErrors(values, smoothed, windowSize) {
+    const source = Array.isArray(values) ? values : [];
+    const halfWindow = Math.floor(windowSize / 2);
+    return source.map((value, index) => {
+      const residuals = [];
+      const radius = Math.min(halfWindow, index, source.length - 1 - index);
+      const start = index - radius;
+      const end = index + radius;
+      for (let sampleIndex = start; sampleIndex <= end; sampleIndex += 1) {
+        const observed = finiteNumberOrNull(source[sampleIndex]);
+        const fitted = finiteNumberOrNull(smoothed[sampleIndex]);
+        if (observed !== null && fitted !== null) {
+          residuals.push(observed - fitted);
+        }
+      }
+      if (residuals.length < 3) {
+        return null;
+      }
+      const mean = residuals.reduce((sum, residual) => sum + residual, 0) / residuals.length;
+      const variance = residuals.reduce(
+        (sum, residual) => sum + Math.pow(residual - mean, 2),
+        0
+      ) / (residuals.length - 1);
+      return Math.sqrt(variance);
+    });
+  }
+
+  function buildScientificSeries(values, xValues, suppliedErrors) {
+    const source = Array.isArray(values) ? values : [];
+    const windowSize = scientificWindowSize(source.length);
+    const errorStep = Math.max(1, Math.ceil(source.length / 24));
+    const y = localLinearSmooth(xValues, source, windowSize);
+    const hasSuppliedErrors = Array.isArray(suppliedErrors) && suppliedErrors.some((value) =>
+      finiteNumberOrNull(value) !== null
+    );
+    const fullError = hasSuppliedErrors
+      ? suppliedErrors.map((value) => {
+          const numeric = finiteNumberOrNull(value);
+          return numeric === null ? null : Math.abs(numeric);
+        })
+      : localResidualErrors(source, y, windowSize);
+    const error = fullError.map((value, index) =>
+      index % errorStep === 0 || index === source.length - 1 ? value : null
+    );
+
+    return {
+      y,
+      error,
+      windowSize,
+      errorKind: hasSuppliedErrors ? "replicate-sd" : "local-residual-sd",
+    };
   }
 
   function surfaceLabMeta(trace) {
@@ -89,7 +177,14 @@
     return Boolean(meta && meta.dataType === "surface-tension" && Array.isArray(meta.originalY));
   }
 
-  function applyScientificTraceStyle(trace, enabled, originalY) {
+  function applyScientificTraceStyle(
+    trace,
+    enabled,
+    originalY,
+    originalX,
+    suppliedErrors,
+    suppliedErrorKind
+  ) {
     if (!trace || typeof trace !== "object") {
       return trace;
     }
@@ -102,6 +197,12 @@
     const rawY = Array.isArray(existingSurfaceLab.originalY)
       ? existingSurfaceLab.originalY.slice()
       : (Array.isArray(originalY) ? originalY.slice() : Array.isArray(trace.y) ? trace.y.slice() : []);
+    const rawX = Array.isArray(existingSurfaceLab.originalX)
+      ? existingSurfaceLab.originalX.slice()
+      : (Array.isArray(originalX) ? originalX.slice() : Array.isArray(trace.x) ? trace.x.slice() : []);
+    const errorValues = Array.isArray(existingSurfaceLab.errorValues)
+      ? existingSurfaceLab.errorValues.slice()
+      : (Array.isArray(suppliedErrors) ? suppliedErrors.slice() : null);
     const baseLineShape = Object.prototype.hasOwnProperty.call(existingSurfaceLab, "baseLineShape")
       ? existingSurfaceLab.baseLineShape
       : (trace.line && Object.prototype.hasOwnProperty.call(trace.line, "shape") ? trace.line.shape : null);
@@ -118,6 +219,9 @@
         ...existingSurfaceLab,
         dataType: "surface-tension",
         originalY: rawY,
+        originalX: rawX,
+        errorValues,
+        errorKind: suppliedErrorKind || existingSurfaceLab.errorKind || (errorValues ? "replicate-sd" : "local-residual-sd"),
         originalErrorY,
         baseLineShape,
         baseLineSmoothing,
@@ -127,7 +231,7 @@
     trace.line = trace.line || {};
 
     if (enabled) {
-      const scientific = buildScientificSeries(rawY);
+      const scientific = buildScientificSeries(rawY, rawX, errorValues);
       trace.y = scientific.y;
       trace.line.shape = "spline";
       trace.line.smoothing = 0.65;
@@ -139,6 +243,7 @@
         thickness: 1.1,
         width: 4,
       };
+      trace.meta.surfaceLab.errorKind = scientific.errorKind;
     } else {
       trace.y = rawY;
       if (baseLineShape === null || typeof baseLineShape === "undefined") {
@@ -162,16 +267,16 @@
 
   function scientificRangeSeries(seriesList) {
     return seriesList.map((series) => {
-      const scientific = buildScientificSeries(series.y);
+      const scientific = buildScientificSeries(series.y, series.x, series.error);
       const rangeValues = [];
       scientific.y.forEach((value, index) => {
-        const numeric = Number(value);
-        const deviation = Number(scientific.error[index]);
-        if (!Number.isFinite(numeric)) {
+        const numeric = finiteNumberOrNull(value);
+        const deviation = finiteNumberOrNull(scientific.error[index]);
+        if (numeric === null) {
           return;
         }
         rangeValues.push(numeric);
-        if (Number.isFinite(deviation)) {
+        if (deviation !== null) {
           rangeValues.push(numeric - deviation, numeric + deviation);
         }
       });
@@ -385,7 +490,10 @@
       const trace = applyScientificTraceStyle(
         buildRawTrace(series, index),
         Boolean(opts.scientificStyle),
-        series.y
+        series.y,
+        series.x,
+        series.error,
+        series.errorKind
       );
       if (trendPayload) {
         trace.line.width = 1.4;
@@ -480,7 +588,14 @@
         hovertemplate: hoverLabel + "<br>" + hoverSelection + "<br>%{x}, %{y:.4f}<extra></extra>",
       };
       if (!isVolume && curve.dataType !== "trend") {
-        applyScientificTraceStyle(trace, Boolean(opts.scientificStyle), curve.y);
+        applyScientificTraceStyle(
+          trace,
+          Boolean(opts.scientificStyle),
+          curve.y,
+          curve.x,
+          curve.error,
+          curve.errorKind
+        );
       }
       return trace;
     });

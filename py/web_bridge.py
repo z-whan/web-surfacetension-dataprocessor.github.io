@@ -49,7 +49,12 @@ def _payload_value(value: Any):
     return _finite_or_none(value)
 
 
-def _series_payload(x_values, y_values, experiment_indexes=None) -> list[dict[str, Any]]:
+def _series_payload(
+    x_values,
+    y_values,
+    experiment_indexes=None,
+    error_values=None,
+) -> list[dict[str, Any]]:
     x_list = [_finite_or_none(value) for value in x_values.tolist()]
     series: list[dict[str, Any]] = []
     experiment_indexes = experiment_indexes or []
@@ -61,6 +66,11 @@ def _series_payload(x_values, y_values, experiment_indexes=None) -> list[dict[st
         }
         if idx < len(experiment_indexes) and experiment_indexes[idx] is not None:
             item["experimentIndex"] = int(experiment_indexes[idx])
+        if error_values is not None and col in error_values.columns:
+            error = [_finite_or_none(value) for value in error_values[col].tolist()]
+            if any(value is not None for value in error):
+                item["error"] = error
+                item["errorKind"] = "replicate-sd"
         series.append(item)
     return series
 
@@ -297,6 +307,7 @@ def analyze_plot_file(
             dataset.x_values,
             dataset.plot_values,
             dataset.plot_experiment_indexes,
+            dataset.plot_error_values,
         ),
         "volumeOverlay": _volume_overlay_payload(source_path, df, dataset),
         "summary": {

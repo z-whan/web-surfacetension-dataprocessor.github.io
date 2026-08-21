@@ -30,6 +30,30 @@ assert.strictEqual(
   "plot palette colors should all be distinct"
 );
 
+const declining = charts.buildScientificSeries(
+  [80, 78, 76, 74, 72, 70, 68],
+  [0, 1000, 2000, 3000, 4000, 5000, 6000]
+);
+assert(Math.abs(declining.y[0] - 80) < 1e-9, "boundary fit should preserve a linear initial value");
+assert(Math.abs(declining.y[6] - 68) < 1e-9, "boundary fit should preserve a linear final value");
+assert(declining.error.every((value) => value === null || Math.abs(value) < 1e-9));
+assert.strictEqual(declining.errorKind, "local-residual-sd");
+
+const nonlinearStart = charts.buildScientificSeries(
+  [80, 72, 70, 69, 68, 67, 66],
+  [0, 1000, 2000, 3000, 4000, 5000, 6000]
+);
+assert.strictEqual(nonlinearStart.y[0], 80, "the first observation must not be averaged with future times");
+assert.strictEqual(nonlinearStart.error[0], null, "single traces must not invent boundary uncertainty");
+
+const replicateUncertainty = charts.buildScientificSeries(
+  [70, 69, 68, 67, 66],
+  [0, 1, 2, 3, 4],
+  [0.4, null, 0.2, 0.3, 0.4]
+);
+assert.deepStrictEqual(replicateUncertainty.error, [0.4, null, 0.2, 0.3, 0.4]);
+assert.strictEqual(replicateUncertainty.errorKind, "replicate-sd");
+
 (async () => {
   await charts.renderTimeSeriesPlot(
     {},
@@ -72,7 +96,13 @@ assert.strictEqual(
     {
       xLabel: "Time (ms)",
       series: [
-        { name: "Exp 1 σ", experimentIndex: 1, x: [1, 2, 3, 4, 5, 6, 7], y: [70, 73, 69, 74, 68, 72, 70] },
+        {
+          name: "Avg (1-3)",
+          x: [1, 2, 3, 4, 5, 6, 7],
+          y: [70, 73, 69, 74, 68, 72, 70],
+          error: [0.5, 0.4, 0.3, 0.2, 0.3, 0.4, 0.5],
+          errorKind: "replicate-sd",
+        },
       ],
       volumeOverlay: {
         yLabel: "Droplet volume, V (μL)",
@@ -91,6 +121,8 @@ assert.strictEqual(
   assert.strictEqual(captured.data[0].error_y.visible, true);
   assert.strictEqual(captured.data[0].meta.surfaceLab.dataType, "surface-tension");
   assert.strictEqual(captured.data[0].meta.surfaceLab.scientificStyleEnabled, true);
+  assert.strictEqual(captured.data[0].meta.surfaceLab.errorKind, "replicate-sd");
+  assert.strictEqual(captured.data[0].error_y.array[0], 0.5);
   assert.notDeepStrictEqual(captured.data[0].y, captured.data[0].meta.surfaceLab.originalY);
   assert.strictEqual(captured.data[1].error_y, undefined, "volume traces must not receive error bars");
   assert.strictEqual(captured.data[1].line.shape, undefined, "volume traces must not be smoothed");
@@ -192,6 +224,8 @@ assert.strictEqual(
         dataType: "raw",
         x: [1, 2, 3, 4, 5],
         y: [70, 72, 69, 73, 71],
+        error: [0.3, 0.2, 0.25, 0.2, 0.3],
+        errorKind: "replicate-sd",
       },
       {
         displayIndex: 2,
@@ -206,6 +240,8 @@ assert.strictEqual(
   );
   assert.strictEqual(captured.data[0].line.shape, "spline");
   assert.strictEqual(captured.data[0].error_y.visible, true);
+  assert.strictEqual(captured.data[0].meta.surfaceLab.errorKind, "replicate-sd");
+  assert.strictEqual(captured.data[0].error_y.array[0], 0.3);
   assert.strictEqual(captured.data[1].line.shape, undefined, "derived trend traces stay unchanged");
   assert.strictEqual(captured.data[1].error_y, undefined, "derived trend traces do not gain error bars");
 

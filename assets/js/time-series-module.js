@@ -722,7 +722,7 @@
         this.renderCurrentPlot();
         this.setStatus(
           this.state.scientificStyle
-            ? "Scientific plot style enabled for raw surface-tension traces (moving average ± local SD)."
+            ? "Scientific plot style enabled (edge-safe local fit; replicate SD when available)."
             : "Point-to-point plot style restored."
         );
       }
@@ -854,6 +854,8 @@
         yAxis: isVolume ? "y2" : "y",
         x: cloneSeriesValues(series.x),
         y: cloneSeriesValues(series.y),
+        error: Array.isArray(series.error) ? cloneSeriesValues(series.error) : null,
+        errorKind: String(series.errorKind || ""),
         points: Array.isArray(series.y) ? series.y.length : 0,
       };
     }

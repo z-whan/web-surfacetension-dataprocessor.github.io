@@ -695,7 +695,7 @@
       this.syncEnabledState();
       this.setPublicationStatus(
         enabled
-          ? "Scientific style applied to raw surface-tension traces (moving average ± local SD)."
+          ? "Scientific style applied (edge-safe local fit; replicate SD when available)."
           : "Point-to-point style restored for raw surface-tension traces."
       );
     }

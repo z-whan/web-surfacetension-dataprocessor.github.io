@@ -20,6 +20,7 @@ class PlotDataset:
     selected_experiment_indexes: list[int] | None = None
     y_experiment_indexes: list[int | None] | None = None
     plot_experiment_indexes: list[int | None] | None = None
+    plot_error_values: pd.DataFrame | None = None
 
 
 _IT_PATTERN = re.compile(r"^I\.?T\.?\s*\(mN\s*/\s*m\)(?:\.(\d+))?$", re.IGNORECASE)
@@ -274,6 +275,7 @@ def prepare_plot_dataset(
     selected_experiment_indexes: list[int] = []
     y_experiment_indexes: list[int | None] = []
     plot_experiment_indexes: list[int | None] = []
+    plot_error_values: pd.DataFrame | None = None
 
     default_range: str | None = None
 
@@ -293,6 +295,9 @@ def prepare_plot_dataset(
             )
             avg_label = f"Avg ({resolved_range_text})"
             avg_numeric = pd.DataFrame({avg_label: selected_numeric.mean(axis=1, skipna=True)})
+            avg_error_numeric = pd.DataFrame({
+                avg_label: selected_numeric.std(axis=1, skipna=True, ddof=1)
+            }) if len(selected_cols) >= 2 else None
             y_numeric = avg_numeric
             y_experiment_indexes = [None]
             plot_numeric = (
@@ -301,6 +306,16 @@ def prepare_plot_dataset(
                 else avg_numeric
             )
             plot_experiment_indexes = selected_indexes + [None] if show_original_with_avg else [None]
+            if avg_error_numeric is not None:
+                if show_original_with_avg:
+                    plot_error_values = pd.DataFrame(
+                        np.nan,
+                        index=df.index,
+                        columns=plot_numeric.columns,
+                    )
+                    plot_error_values[avg_label] = avg_error_numeric[avg_label]
+                else:
+                    plot_error_values = avg_error_numeric
             exp_tag = f"avg({resolved_range_text})"
         else:
             if avg_col is None:
@@ -326,6 +341,25 @@ def prepare_plot_dataset(
             else:
                 plot_numeric = avg_numeric
                 plot_experiment_indexes = [None]
+                selected_numeric = None
+                if len(selected_experiment_indexes) >= 2:
+                    selected_cols = [ordered_it_cols[idx - 1] for idx in selected_experiment_indexes]
+                    selected_numeric = df[selected_cols].apply(
+                        lambda series: pd.to_numeric(series, errors="coerce")
+                    )
+            if selected_numeric is not None and len(selected_numeric.columns) >= 2:
+                avg_error_numeric = pd.DataFrame({
+                    "Avg": selected_numeric.std(axis=1, skipna=True, ddof=1)
+                })
+                if show_original_with_avg:
+                    plot_error_values = pd.DataFrame(
+                        np.nan,
+                        index=df.index,
+                        columns=plot_numeric.columns,
+                    )
+                    plot_error_values["Avg"] = avg_error_numeric["Avg"]
+                else:
+                    plot_error_values = avg_error_numeric
             exp_tag = "avg"
     else:
         if n_experiments == 0:
@@ -354,6 +388,7 @@ def prepare_plot_dataset(
     x_plot = x_raw.iloc[s:e]
     y_plot = y_numeric.iloc[s:e]
     plot_values = plot_numeric.iloc[s:e]
+    plot_errors = plot_error_values.iloc[s:e] if plot_error_values is not None else None
 
     if x_plot.empty:
         raise DataProcessingError("Empty selection after range processing.")
@@ -369,4 +404,5 @@ def prepare_plot_dataset(
         selected_experiment_indexes=selected_experiment_indexes,
         y_experiment_indexes=y_experiment_indexes,
         plot_experiment_indexes=plot_experiment_indexes,
+        plot_error_values=plot_errors,
     )

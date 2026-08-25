@@ -707,6 +707,21 @@ select {
   font-size: 12px;
 }
 
+.publication-unit-switch {
+  width: fit-content;
+}
+
+[data-publication-panel-controls] {
+  padding: 10px;
+  border: 1px solid #d7d7d7;
+  background: #fafafa;
+}
+
+.publication-math-hint {
+  margin-top: -2px;
+  margin-bottom: 10px;
+}
+
 .trace-editor-list {
   display: grid;
   gap: 12px;

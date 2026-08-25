@@ -6,8 +6,15 @@
   const DEFAULT_TICK_FONT_SIZE = 12;
   const DEFAULT_LEGEND_FONT_SIZE = 12;
   const DEFAULT_AXIS_LINE_WIDTH = 1;
+  const DEFAULT_AXIS_TITLE_STANDOFF = 18;
   const DEFAULT_LEGEND_POSITION = "outside-top";
   const DEFAULT_LEGEND_ORIENTATION = "h";
+  const DEFAULT_PANEL_FONT_SIZE = 20;
+  const DEFAULT_PANEL_OFFSET = 12;
+  const PANEL_ANNOTATION_NAME = "surface-lab-panel-label";
+  const TITLELESS_TOP_MARGIN = 24;
+  const TITLE_TOP_MARGIN = 76;
+  const OUTSIDE_TOP_LEGEND_MARGIN = 58;
   const FALLBACK_TRACE_COLOR = "#0072B2";
   const LINE_DASHES = ["solid", "dash", "dot", "dashdot"];
   const FIGURE_PRESETS = {
@@ -220,6 +227,116 @@
       return "";
     }
     return typeof axis.title === "string" ? axis.title : String(axis.title.text || "");
+  }
+
+  function normalizeSurfaceTensionLabel(value) {
+    const text = String(value || "").trim();
+    if (/^I\.?\s*T\.?\s*\(\s*mN\s*\/\s*m\s*\)$/i.test(text)) {
+      return "Surface Tension (mN/m)";
+    }
+    return text;
+  }
+
+  function detectTimeUnit(value) {
+    const text = String(value || "");
+    if (/\(\s*ms\s*\)/i.test(text) || /\bmilliseconds?\b/i.test(text)) {
+      return "ms";
+    }
+    if (/\(\s*s\s*\)/i.test(text) || /\bseconds?\b/i.test(text)) {
+      return "s";
+    }
+    return "";
+  }
+
+  function convertTimeUnitTitle(value, targetUnit) {
+    const text = String(value || "");
+    if (targetUnit === "s") {
+      return text
+        .replace(/\(\s*ms\s*\)/gi, "(s)")
+        .replace(/\bmilliseconds?\b/gi, "s");
+    }
+    return text
+      .replace(/\(\s*s\s*\)/gi, "(ms)")
+      .replace(/\bseconds?\b/gi, "ms");
+  }
+
+  function scaleNumericValue(value, factor) {
+    if (value === null || typeof value === "undefined" || value === "") {
+      return value;
+    }
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric * factor : value;
+  }
+
+  function scaleNumericArray(values, factor) {
+    return Array.isArray(values) ? values.map((value) => scaleNumericValue(value, factor)) : values;
+  }
+
+  function scaleTraceTime(trace, factor) {
+    if (!trace || typeof trace !== "object") {
+      return;
+    }
+    trace.x = scaleNumericArray(trace.x, factor);
+    if (trace.error_x && typeof trace.error_x === "object") {
+      trace.error_x.array = scaleNumericArray(trace.error_x.array, factor);
+      trace.error_x.arrayminus = scaleNumericArray(trace.error_x.arrayminus, factor);
+    }
+  }
+
+  function scaleTimeLayout(layout, factor) {
+    if (!layout || typeof layout !== "object") {
+      return;
+    }
+    const xaxis = layout.xaxis || {};
+    xaxis.range = scaleNumericArray(xaxis.range, factor);
+    xaxis.tickvals = scaleNumericArray(xaxis.tickvals, factor);
+    if (Number.isFinite(Number(xaxis.tick0))) {
+      xaxis.tick0 = Number(xaxis.tick0) * factor;
+    }
+    if (Number.isFinite(Number(xaxis.dtick))) {
+      xaxis.dtick = Number(xaxis.dtick) * factor;
+    }
+    layout.xaxis = xaxis;
+
+    (Array.isArray(layout.shapes) ? layout.shapes : []).forEach((shape) => {
+      if (!shape || !/^x(?:\d+)?$/.test(String(shape.xref || "x"))) {
+        return;
+      }
+      shape.x0 = scaleNumericValue(shape.x0, factor);
+      shape.x1 = scaleNumericValue(shape.x1, factor);
+    });
+    (Array.isArray(layout.annotations) ? layout.annotations : []).forEach((annotation) => {
+      if (annotation && /^x(?:\d+)?$/.test(String(annotation.xref || ""))) {
+        annotation.x = scaleNumericValue(annotation.x, factor);
+      }
+      if (annotation && /^x(?:\d+)?$/.test(String(annotation.axref || ""))) {
+        annotation.ax = scaleNumericValue(annotation.ax, factor);
+      }
+    });
+  }
+
+  function createTimeUnitState(input, xTitle) {
+    const supplied = input && typeof input === "object" ? input : {};
+    const detectedUnit = detectTimeUnit(xTitle);
+    const eligible = typeof supplied.eligible === "boolean" ? supplied.eligible : detectedUnit === "ms";
+    const current = supplied.current === "s" ? "s" : "ms";
+    const titles = supplied.titles && typeof supplied.titles === "object" ? deepCopy(supplied.titles) : {};
+    if (detectedUnit) {
+      titles[detectedUnit] = String(xTitle || "");
+    }
+    return { eligible, current: eligible ? current : "", titles };
+  }
+
+  function createPanelAnnotationState(input) {
+    const supplied = input && typeof input === "object" ? input : {};
+    return {
+      enabled: Boolean(supplied.enabled),
+      text: typeof supplied.text === "string" ? supplied.text : "(a)",
+      position: supplied.position === "top-right" ? "top-right" : "top-left",
+      fontSize: Math.max(6, toFiniteNumber(supplied.fontSize, DEFAULT_PANEL_FONT_SIZE)),
+      xOffset: Math.max(0, toFiniteNumber(supplied.xOffset, DEFAULT_PANEL_OFFSET)),
+      yOffset: Math.max(0, toFiniteNumber(supplied.yOffset, DEFAULT_PANEL_OFFSET)),
+    };
   }
 
   function toFiniteNumber(value, fallback) {
@@ -458,6 +575,8 @@
         },
         defaultTraceStyles: [],
         scientificStyleEnabled: false,
+        timeUnitState: createTimeUnitState(),
+        panelAnnotation: createPanelAnnotationState(),
         styleMeta: createStyleMeta(),
       };
       this.styleHistory = [];
@@ -478,13 +597,23 @@
         fontSize: document.querySelector("#publication-font-size"),
         xTitle: document.querySelector("#publication-x-title"),
         yTitle: document.querySelector("#publication-y-title"),
+        timeSeconds: document.querySelector("#publication-time-seconds"),
         tickFontSize: document.querySelector("#publication-tick-font-size"),
         axisLineWidth: document.querySelector("#publication-axis-line-width"),
+        xTitleStandoff: document.querySelector("#publication-x-title-standoff"),
+        yTitleStandoff: document.querySelector("#publication-y-title-standoff"),
         xMin: document.querySelector("#publication-x-min"),
         xMax: document.querySelector("#publication-x-max"),
         yMin: document.querySelector("#publication-y-min"),
         yMax: document.querySelector("#publication-y-max"),
         resetAxes: document.querySelector("#publication-reset-axes"),
+        panelEnabled: document.querySelector("#publication-panel-enabled"),
+        panelControls: document.querySelector("[data-publication-panel-controls]"),
+        panelText: document.querySelector("#publication-panel-text"),
+        panelPosition: document.querySelector("#publication-panel-position"),
+        panelFontSize: document.querySelector("#publication-panel-font-size"),
+        panelXOffset: document.querySelector("#publication-panel-x-offset"),
+        panelYOffset: document.querySelector("#publication-panel-y-offset"),
         showLegend: document.querySelector("#publication-show-legend"),
         legendFontSize: document.querySelector("#publication-legend-font-size"),
         legendPosition: document.querySelector("#publication-legend-position"),
@@ -509,6 +638,7 @@
       this.bindPresetControls();
       this.bindTraceControls();
       this.dom.scientificStyle.addEventListener("change", () => this.applyScientificStyle());
+      this.dom.timeSeconds.addEventListener("change", () => this.applyTimeUnit());
       this.dom.resetAxes.addEventListener("click", () => this.resetAxisAutorange());
       this.dom.exportPng.addEventListener("click", () => this.exportFigure("png"));
       this.dom.exportSvg.addEventListener("click", () => this.exportFigure("svg"));
@@ -531,11 +661,19 @@
       this.dom.exportSvg.disabled = !enabled;
       this.dom.scientificStyle.disabled = !enabled || !this.hasScientificSurfaceTensionTraces();
       this.dom.scientificStyle.checked = Boolean(this.state.scientificStyleEnabled);
+      this.dom.timeSeconds.disabled = !enabled || !this.state.timeUnitState.eligible;
+      this.dom.timeSeconds.checked = this.state.timeUnitState.current === "s";
       [
         this.dom.figurePreset,
         this.dom.styleTemplate,
         this.dom.undoStyle,
         this.dom.titleClear,
+        this.dom.panelEnabled,
+        this.dom.panelText,
+        this.dom.panelPosition,
+        this.dom.panelFontSize,
+        this.dom.panelXOffset,
+        this.dom.panelYOffset,
         this.dom.batchLineWidth,
         this.dom.applyLineWidth,
         this.dom.batchMarkerSize,
@@ -600,6 +738,8 @@
         exportSettings: deepCopy(this.state.exportSettings),
         styleMeta: deepCopy(this.state.styleMeta),
         scientificStyleEnabled: Boolean(this.state.scientificStyleEnabled),
+        timeUnitState: deepCopy(this.state.timeUnitState),
+        panelAnnotation: deepCopy(this.state.panelAnnotation),
       });
       if (this.styleHistory.length > 8) {
         this.styleHistory.shift();
@@ -619,10 +759,18 @@
 
       const meta = metadata || {};
       const layout = deepCopy(source.layout || {});
+      if (!layout.yaxis) {
+        layout.yaxis = {};
+      }
+      if (!layout.yaxis.title || typeof layout.yaxis.title === "string") {
+        layout.yaxis.title = { text: normalizeSurfaceTensionLabel(getAxisTitle(layout.yaxis)) };
+      } else {
+        layout.yaxis.title.text = normalizeSurfaceTensionLabel(getAxisTitle(layout.yaxis));
+      }
       const copiedConfig = deepCopy(meta.config || { responsive: true, displaylogo: false, editable: false });
       const figurePayload = {
         data: deepCopy(data),
-        layout: deepCopy(source.layout || {}),
+        layout: deepCopy(layout),
         config: deepCopy(copiedConfig),
       };
       const copiedData = deepCopy(figurePayload.data);
@@ -640,6 +788,8 @@
         autosize: false,
       };
       const exportSettings = { width, height };
+      const timeUnitState = createTimeUnitState(null, getAxisTitle(publicationLayout.xaxis || {}));
+      const panelAnnotation = createPanelAnnotationState();
 
       this.state = {
         sourceType: meta.sourceType || "unknown",
@@ -659,11 +809,15 @@
         defaultExportSettings: deepCopy(exportSettings),
         defaultTraceStyles: cloneTraceStyles(copiedData),
         scientificStyleEnabled,
+        timeUnitState,
+        panelAnnotation,
         styleMeta: createStyleMeta(),
       };
       this.styleHistory = [];
 
       this.activateTab("publication");
+      this.applyPanelAnnotationToLayout();
+      this.applyTitleRegionToLayout();
       this.syncControlsFromFigure();
       this.renderTraceControls();
       await this.render();
@@ -708,6 +862,123 @@
       });
     }
 
+    async applyTimeUnit() {
+      const timeState = this.state.timeUnitState;
+      if (!this.hasFigure() || !timeState.eligible) {
+        this.dom.timeSeconds.checked = false;
+        return;
+      }
+
+      const targetUnit = this.dom.timeSeconds.checked ? "s" : "ms";
+      if (targetUnit === timeState.current) {
+        return;
+      }
+
+      this.pushStyleSnapshot("time unit conversion");
+      const factor = targetUnit === "s" ? 0.001 : 1000;
+      const currentTitle = getAxisTitle(this.state.layout.xaxis || {});
+      timeState.titles[timeState.current] = currentTitle;
+      this.state.data.forEach((trace) => scaleTraceTime(trace, factor));
+      scaleTimeLayout(this.state.layout, factor);
+      timeState.current = targetUnit;
+
+      const convertedTitle = timeState.titles[targetUnit]
+        || convertTimeUnitTitle(currentTitle, targetUnit);
+      timeState.titles[targetUnit] = convertedTitle;
+      setNested(this.state.layout, "xaxis.title.text", convertedTitle);
+      this.syncControlsFromFigure();
+      await this.render();
+      this.updateStyleFeedback();
+      this.setPublicationStatus(
+        targetUnit === "s"
+          ? "Time converted from milliseconds to seconds."
+          : "Time restored from seconds to milliseconds."
+      );
+    }
+
+    panelAnnotationFromControls() {
+      return createPanelAnnotationState({
+        enabled: this.dom.panelEnabled.checked,
+        text: this.dom.panelText.value,
+        position: this.dom.panelPosition.value,
+        fontSize: this.dom.panelFontSize.value,
+        xOffset: this.dom.panelXOffset.value,
+        yOffset: this.dom.panelYOffset.value,
+      });
+    }
+
+    applyPanelAnnotationToLayout() {
+      const panel = createPanelAnnotationState(this.state.panelAnnotation);
+      const annotations = (Array.isArray(this.state.layout.annotations)
+        ? this.state.layout.annotations
+        : []).filter((annotation) => annotation && annotation.name !== PANEL_ANNOTATION_NAME);
+      if (panel.enabled && panel.text.trim()) {
+        const onRight = panel.position === "top-right";
+        annotations.push({
+          name: PANEL_ANNOTATION_NAME,
+          text: panel.text,
+          showarrow: false,
+          xref: "paper",
+          yref: "paper",
+          x: onRight ? 1 : 0,
+          y: 1,
+          xanchor: onRight ? "right" : "left",
+          yanchor: "top",
+          xshift: onRight ? -panel.xOffset : panel.xOffset,
+          yshift: -panel.yOffset,
+          align: onRight ? "right" : "left",
+          font: {
+            size: panel.fontSize,
+            color: (this.state.layout.font && this.state.layout.font.color) || "#111111",
+          },
+        });
+      }
+      this.state.panelAnnotation = panel;
+      this.state.layout.annotations = annotations;
+    }
+
+    applyTitleRegionToLayout() {
+      const titleText = getTitleText(this.state.layout.title).trim();
+      const fontSize = Math.max(6, toFiniteNumber(
+        this.state.layout.font && this.state.layout.font.size,
+        toFiniteNumber(this.dom && this.dom.fontSize && this.dom.fontSize.value, DEFAULT_FONT_SIZE)
+      ));
+      const outsideTopLegend = this.state.layout.showlegend !== false
+        && inferLegendPreset(this.state.layout.legend || {}) === "outside-top";
+      const titleMargin = titleText ? Math.max(TITLE_TOP_MARGIN, Math.round(fontSize * 2.8)) : TITLELESS_TOP_MARGIN;
+      if (!this.state.layout.margin || typeof this.state.layout.margin !== "object") {
+        this.state.layout.margin = {};
+      }
+      this.state.layout.margin.t = titleMargin + (outsideTopLegend ? OUTSIDE_TOP_LEGEND_MARGIN : 0);
+      if (!this.state.layout.title || typeof this.state.layout.title === "string") {
+        this.state.layout.title = { text: titleText };
+      }
+      Object.assign(this.state.layout.title, {
+        text: titleText,
+        x: 0.5,
+        xanchor: "center",
+        y: 1,
+        yanchor: "top",
+        yref: "container",
+        pad: { t: 10, b: 10 },
+      });
+    }
+
+    async applyPanelControls() {
+      if (!this.hasFigure()) {
+        return;
+      }
+      this.state.panelAnnotation = this.panelAnnotationFromControls();
+      this.dom.panelControls.hidden = !this.state.panelAnnotation.enabled;
+      this.applyPanelAnnotationToLayout();
+      this.state.styleMeta.manualLayoutEdited = true;
+      this.state.styleMeta.presetModified = Boolean(this.state.styleMeta.currentPreset);
+      this.state.styleMeta.templateModified = Boolean(this.state.styleMeta.currentTemplate);
+      await this.render();
+      this.updateStyleFeedback();
+      this.setPublicationStatus("Panel label updated.");
+    }
+
     syncControlsFromFigure() {
       const layout = this.state.layout || {};
       const xaxis = layout.xaxis || {};
@@ -719,12 +990,21 @@
       this.dom.height.value = this.state.exportSettings.height;
       this.dom.fontSize.value = toFiniteNumber(layout.font && layout.font.size, DEFAULT_FONT_SIZE);
       this.dom.xTitle.value = getAxisTitle(xaxis);
-      this.dom.yTitle.value = getAxisTitle(yaxis);
+      this.dom.yTitle.value = normalizeSurfaceTensionLabel(getAxisTitle(yaxis));
+      this.dom.timeSeconds.checked = this.state.timeUnitState.current === "s";
       this.dom.tickFontSize.value = toFiniteNumber(
         (xaxis.tickfont && xaxis.tickfont.size) || (yaxis.tickfont && yaxis.tickfont.size),
         DEFAULT_TICK_FONT_SIZE
       );
       this.dom.axisLineWidth.value = toFiniteNumber(xaxis.linewidth || yaxis.linewidth, DEFAULT_AXIS_LINE_WIDTH);
+      this.dom.xTitleStandoff.value = toFiniteNumber(
+        xaxis.title && xaxis.title.standoff,
+        DEFAULT_AXIS_TITLE_STANDOFF
+      );
+      this.dom.yTitleStandoff.value = toFiniteNumber(
+        yaxis.title && yaxis.title.standoff,
+        DEFAULT_AXIS_TITLE_STANDOFF
+      );
       this.dom.xMin.value = Array.isArray(xaxis.range) ? xaxis.range[0] : "";
       this.dom.xMax.value = Array.isArray(xaxis.range) ? xaxis.range[1] : "";
       this.dom.yMin.value = Array.isArray(yaxis.range) ? yaxis.range[0] : "";
@@ -741,6 +1021,15 @@
       this.dom.legendY.value = Number.isFinite(Number(legend.y))
         ? legend.y
         : (inferredLegendPreset && inferredLegendPreset.y) || 1;
+      const panel = createPanelAnnotationState(this.state.panelAnnotation);
+      this.dom.panelEnabled.checked = panel.enabled;
+      this.dom.panelControls.hidden = !panel.enabled;
+      this.dom.panelText.value = panel.text;
+      this.dom.panelPosition.value = panel.position;
+      this.dom.panelFontSize.value = panel.fontSize;
+      this.dom.panelXOffset.value = panel.xOffset;
+      this.dom.panelYOffset.value = panel.yOffset;
+      this.syncEnabledState();
     }
 
     bindLayoutControls() {
@@ -753,6 +1042,8 @@
         this.dom.yTitle,
         this.dom.tickFontSize,
         this.dom.axisLineWidth,
+        this.dom.xTitleStandoff,
+        this.dom.yTitleStandoff,
         this.dom.xMin,
         this.dom.xMax,
         this.dom.yMin,
@@ -776,6 +1067,18 @@
           }
           this.applyLayoutControls({ userInitiated: true });
         });
+      });
+
+      [
+        this.dom.panelEnabled,
+        this.dom.panelText,
+        this.dom.panelPosition,
+        this.dom.panelFontSize,
+        this.dom.panelXOffset,
+        this.dom.panelYOffset,
+      ].forEach((element) => {
+        element.addEventListener("input", () => this.applyPanelControls());
+        element.addEventListener("change", () => this.applyPanelControls());
       });
 
       if (this.dom.titleClear) {
@@ -820,6 +1123,8 @@
       const fontSize = Math.max(6, toFiniteNumber(this.dom.fontSize.value, DEFAULT_FONT_SIZE));
       const tickFontSize = Math.max(6, toFiniteNumber(this.dom.tickFontSize.value, DEFAULT_TICK_FONT_SIZE));
       const axisLineWidth = Math.max(0, toFiniteNumber(this.dom.axisLineWidth.value, DEFAULT_AXIS_LINE_WIDTH));
+      const xTitleStandoff = Math.max(0, toFiniteNumber(this.dom.xTitleStandoff.value, DEFAULT_AXIS_TITLE_STANDOFF));
+      const yTitleStandoff = Math.max(0, toFiniteNumber(this.dom.yTitleStandoff.value, DEFAULT_AXIS_TITLE_STANDOFF));
       const legendFontSize = Math.max(6, toFiniteNumber(this.dom.legendFontSize.value, DEFAULT_LEGEND_FONT_SIZE));
       const legendPreset = legendPresetToLayout(this.dom.legendPosition.value);
       const legendOrientation = this.dom.legendOrientation.value === "v" ? "v" : DEFAULT_LEGEND_ORIENTATION;
@@ -827,6 +1132,9 @@
       const legendY = legendPreset ? legendPreset.y : toFiniteNumber(this.dom.legendY.value, 1);
       const legendXAnchor = legendPreset ? legendPreset.xanchor : (this.state.layout.legend && this.state.layout.legend.xanchor) || "left";
       const legendYAnchor = legendPreset ? legendPreset.yanchor : (this.state.layout.legend && this.state.layout.legend.yanchor) || "top";
+      const titleText = this.dom.title.value.trim();
+      const titleMargin = titleText ? Math.max(TITLE_TOP_MARGIN, Math.round(fontSize * 2.8)) : TITLELESS_TOP_MARGIN;
+      const outsideTopLegend = this.dom.showLegend.checked && this.dom.legendPosition.value === "outside-top";
 
       if (legendPreset) {
         this.dom.legendX.value = legendPreset.x;
@@ -834,13 +1142,24 @@
       }
 
       const update = {
-        "title.text": this.dom.title.value,
+        "title.text": titleText,
+        "title.x": 0.5,
+        "title.xanchor": "center",
+        "title.y": 1,
+        "title.yanchor": "top",
+        "title.yref": "container",
+        "title.pad": { t: 10, b: 10 },
+        "margin.t": titleMargin + (outsideTopLegend ? OUTSIDE_TOP_LEGEND_MARGIN : 0),
         width,
         height,
         autosize: false,
         "font.size": fontSize,
         "xaxis.title.text": this.dom.xTitle.value,
-        "yaxis.title.text": this.dom.yTitle.value,
+        "yaxis.title.text": normalizeSurfaceTensionLabel(this.dom.yTitle.value),
+        "xaxis.title.standoff": xTitleStandoff,
+        "yaxis.title.standoff": yTitleStandoff,
+        "xaxis.automargin": true,
+        "yaxis.automargin": true,
         "xaxis.tickfont.size": tickFontSize,
         "yaxis.tickfont.size": tickFontSize,
         "xaxis.linewidth": axisLineWidth,
@@ -893,6 +1212,9 @@
       }
       const update = this.buildLayoutUpdate();
       Object.keys(update).forEach((path) => setNested(this.state.layout, path, update[path]));
+      if (this.state.timeUnitState.eligible && this.state.timeUnitState.current) {
+        this.state.timeUnitState.titles[this.state.timeUnitState.current] = this.dom.xTitle.value;
+      }
       await Plotly.relayout(this.dom.canvas, update);
       if (!options || options.userInitiated !== false) {
         this.state.styleMeta.manualLayoutEdited = true;
@@ -958,6 +1280,15 @@
       layout.width = exportSettings.width;
       layout.height = exportSettings.height;
       layout.autosize = false;
+      if (this.state.timeUnitState.eligible && this.state.timeUnitState.current === "s") {
+        scaleTimeLayout(layout, 0.001);
+        const originalTitle = getAxisTitle(layout.xaxis || {});
+        setNested(layout, "xaxis.title.text", this.state.timeUnitState.titles.s
+          || convertTimeUnitTitle(originalTitle, "s"));
+      }
+      if (layout.yaxis) {
+        setNested(layout, "yaxis.title.text", normalizeSurfaceTensionLabel(getAxisTitle(layout.yaxis)));
+      }
       return { layout, exportSettings };
     }
 
@@ -969,6 +1300,8 @@
       const defaults = this.getDefaultLayoutSnapshot();
       this.state.layout = defaults.layout;
       this.state.exportSettings = defaults.exportSettings;
+      this.applyPanelAnnotationToLayout();
+      this.applyTitleRegionToLayout();
       this.state.styleMeta.currentPreset = "default";
       this.state.styleMeta.manualLayoutEdited = false;
       this.state.styleMeta.presetModified = false;
@@ -1037,6 +1370,8 @@
       this.state.exportSettings = defaults.exportSettings;
       this.state.data.forEach((trace, index) => restoreTraceStyles(trace, this.state.defaultTraceStyles[index]));
       this.reapplyScientificStyleState();
+      this.applyPanelAnnotationToLayout();
+      this.applyTitleRegionToLayout();
       this.state.styleMeta.currentPreset = "default";
       this.state.styleMeta.currentTemplate = "default";
       this.state.styleMeta.manualLayoutEdited = false;
@@ -1066,6 +1401,8 @@
       const controlUpdate = this.buildLayoutUpdate();
       Object.keys(controlUpdate).forEach((path) => setNested(this.state.layout, path, controlUpdate[path]));
       Object.keys(template.layout || {}).forEach((path) => setNested(this.state.layout, path, template.layout[path]));
+      this.applyPanelAnnotationToLayout();
+      this.applyTitleRegionToLayout();
       this.applyTemplateTraceDefaults(template.traces);
       this.state.styleMeta.presetModified = Boolean(this.state.styleMeta.currentPreset);
       this.state.styleMeta.currentTemplate = templateKey;
@@ -1087,6 +1424,13 @@
       this.state.exportSettings = deepCopy(snapshot.exportSettings);
       this.state.styleMeta = createStyleMeta(snapshot.styleMeta);
       this.state.scientificStyleEnabled = Boolean(snapshot.scientificStyleEnabled);
+      this.state.timeUnitState = createTimeUnitState(
+        snapshot.timeUnitState,
+        getAxisTitle(this.state.layout.xaxis || {})
+      );
+      this.state.panelAnnotation = createPanelAnnotationState(snapshot.panelAnnotation);
+      this.applyPanelAnnotationToLayout();
+      this.applyTitleRegionToLayout();
       this.syncControlsFromFigure();
       this.renderTraceControls();
       await this.render();
@@ -1249,7 +1593,9 @@
         this.dom.traceList.appendChild(domUtils.el("div", { className: "trace-editor-card" }, [
           title,
           domUtils.el("div", { className: "field-grid" }, [
-            buildTraceInputField(index, "Trace Display Name", "name", "text", trace.name || ""),
+            buildTraceInputField(index, "Trace Display Name", "name", "text", trace.name || "", {
+              placeholder: "Plain text or $\\LaTeX$",
+            }),
             traceStyleGrid,
           ]),
         ]));
@@ -1374,6 +1720,12 @@
       const defaultLayout = hasObjectEntries(input.defaultLayout)
         ? deepCopy(input.defaultLayout)
         : createDefaultLayoutFromPayload(figurePayload, defaultExportSettings);
+      if (!layout.yaxis) {
+        layout.yaxis = {};
+      }
+      setNested(layout, "yaxis.title.text", normalizeSurfaceTensionLabel(getAxisTitle(layout.yaxis)));
+      const timeUnitState = createTimeUnitState(input.timeUnitState, getAxisTitle(layout.xaxis || {}));
+      const panelAnnotation = createPanelAnnotationState(input.panelAnnotation);
 
       this.state = {
         sourceType: typeof input.sourceType === "string" ? input.sourceType : "imported-session",
@@ -1400,6 +1752,8 @@
           : data.some((trace) => Boolean(
               trace && trace.meta && trace.meta.surfaceLab && trace.meta.surfaceLab.scientificStyleEnabled
             )),
+        timeUnitState,
+        panelAnnotation,
         styleMeta: createStyleMeta(input.styleMeta),
       };
       this.styleHistory = [];
@@ -1417,6 +1771,8 @@
       this.state.layout.width = this.state.exportSettings.width;
       this.state.layout.height = this.state.exportSettings.height;
       this.state.layout.autosize = false;
+      this.applyPanelAnnotationToLayout();
+      this.applyTitleRegionToLayout();
       this.syncControlsFromFigure();
       this.renderTraceControls();
       await this.render();
@@ -1431,6 +1787,14 @@
   window.SurfaceLabPublicationPlot = {
     createController(options) {
       return new PublicationPlotController(options);
+    },
+    __test: {
+      normalizeSurfaceTensionLabel,
+      detectTimeUnit,
+      convertTimeUnitTitle,
+      scaleTraceTime,
+      scaleTimeLayout,
+      createPanelAnnotationState,
     },
   };
 })();

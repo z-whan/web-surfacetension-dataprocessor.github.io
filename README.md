@@ -126,8 +126,16 @@ Use this tab after sending a plot from Time Series, Compare, or CMC.
 - Choose figure size presets such as single column, double column,
   presentation, square, or wide.
 - Apply style templates such as clean, dense, large font, or minimal.
-- Edit titles, axis labels, legend placement, font sizes, trace styles, and
-  export size.
+- Edit titles, axis labels, axis-title spacing, legend placement, font sizes,
+  trace styles, and export size.
+- Convert millisecond time axes to seconds, including trace data and manual
+  axis limits.
+- Add an optional `(a)` / `(b)` panel label at either top corner with
+  adjustable inset and font size.
+- Use `$...$` LaTeX / MathText in figure titles, axis titles, panel labels,
+  and trace display names.
+- Figure titles use a dedicated top region that collapses when the title is
+  empty, leaving more space for the plotting area.
 - Export PNG/SVG.
 
 Publication styling works on a copied Plotly figure. It does not alter the

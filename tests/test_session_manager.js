@@ -54,6 +54,9 @@ const session = manager.createSession({
     layout: { title: { text: "Figure" } },
     config: { responsive: true },
     exportSettings: { width: 1000, height: 700 },
+    scientificStyleEnabled: true,
+    timeUnitState: { eligible: true, current: "s", titles: { ms: "Time (ms)", s: "Time (s)" } },
+    panelAnnotation: { enabled: true, text: "(a)", position: "top-left" },
   },
   cmc: {
     shouldNotAppear: true,
@@ -66,6 +69,9 @@ assert.strictEqual(session.cmc, undefined);
 assert.strictEqual(session.timeSeries.selection.expRangeText, "1-2");
 assert.strictEqual(session.compare.curves.length, 1);
 assert.strictEqual(session.publication.layout.title.text, "Figure");
+assert.strictEqual(session.publication.scientificStyleEnabled, true);
+assert.strictEqual(session.publication.timeUnitState.current, "s");
+assert.strictEqual(session.publication.panelAnnotation.text, "(a)");
 
 const validation = manager.parseAndValidateSession(JSON.stringify(session));
 assert.strictEqual(validation.ok, true);

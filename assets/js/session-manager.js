@@ -161,6 +161,9 @@
       defaultLayout: cloneJson(isPlainObject(value.defaultLayout) ? value.defaultLayout : {}),
       defaultExportSettings: cloneJson(isPlainObject(value.defaultExportSettings) ? value.defaultExportSettings : {}),
       defaultTraceStyles: cloneJson(Array.isArray(value.defaultTraceStyles) ? value.defaultTraceStyles : []),
+      scientificStyleEnabled: Boolean(value.scientificStyleEnabled),
+      timeUnitState: cloneJson(isPlainObject(value.timeUnitState) ? value.timeUnitState : {}),
+      panelAnnotation: cloneJson(isPlainObject(value.panelAnnotation) ? value.panelAnnotation : {}),
       styleMeta: cloneJson(isPlainObject(value.styleMeta) ? value.styleMeta : {}),
     };
   }

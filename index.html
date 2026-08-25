@@ -13,16 +13,20 @@
     <link rel="icon" type="image/png" sizes="32x32" href="./assets/icons/favicon-32.png?v=20260424b" />
     <link rel="apple-touch-icon" sizes="180x180" href="./assets/icons/apple-touch-icon.png?v=20260424b" />
     <link rel="manifest" href="./site.webmanifest?v=20260424b" />
-    <link rel="stylesheet" href="./assets/css/main.css?v=20260821a" />
+    <link rel="stylesheet" href="./assets/css/main.css?v=20260824a" />
+    <script>window.PlotlyConfig = { MathJaxConfig: "local" };</script>
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_SVG.js"
+    ></script>
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
     <script src="./assets/js/config.js?v=20260424a" defer></script>
     <script src="./assets/js/python-sources.js?v=20260821b" defer></script>
     <script src="./assets/js/dom-utils.js?v=20260501a" defer></script>
     <script src="./assets/js/downloads.js?v=20260501a" defer></script>
-    <script src="./assets/js/session-manager.js?v=20260501b" defer></script>
+    <script src="./assets/js/session-manager.js?v=20260824a" defer></script>
     <script src="./assets/js/cmc-workflow.js?v=20260515b" defer></script>
     <script src="./assets/js/charts.js?v=20260821b" defer></script>
-    <script src="./assets/js/publication-plot.js?v=20260821b" defer></script>
+    <script src="./assets/js/publication-plot.js?v=20260824a" defer></script>
     <script src="./assets/js/pyodide-client.js?v=20260424a" defer></script>
     <script src="./assets/js/time-series-module.js?v=20260821b" defer></script>
     <script src="./assets/js/compare-module.js?v=20260821b" defer></script>
@@ -843,7 +847,7 @@
                 <div class="field">
                   <label for="publication-title">Figure Title</label>
                   <div class="clearable-input">
-                    <input id="publication-title" type="text" />
+                    <input id="publication-title" type="text" placeholder="Plain text or $\LaTeX$" />
                     <button
                       id="publication-title-clear"
                       class="clear-input-button"
@@ -853,6 +857,7 @@
                       X
                     </button>
                   </div>
+                  <p class="field-hint">Use <code>$...$</code> for LaTeX / MathText, for example <code>$\sigma_{eq}$</code>.</p>
                 </div>
                 <div class="form-grid">
                   <div class="field">
@@ -876,12 +881,21 @@
               <div class="field-grid">
                 <div class="field">
                   <label for="publication-x-title">X-axis Title</label>
-                  <input id="publication-x-title" type="text" />
+                  <input id="publication-x-title" type="text" placeholder="Plain text or $\LaTeX$" />
                 </div>
                 <div class="field">
                   <label for="publication-y-title">Y-axis Title</label>
-                  <input id="publication-y-title" type="text" />
+                  <input id="publication-y-title" type="text" placeholder="Surface Tension (mN/m)" />
                 </div>
+                <label
+                  class="plot-style-switch publication-unit-switch"
+                  for="publication-time-seconds"
+                  title="Convert plotted time values, axis limits, and the axis unit from milliseconds to seconds."
+                >
+                  <input id="publication-time-seconds" type="checkbox" disabled />
+                  <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+                  <span>Convert time: ms → s</span>
+                </label>
                 <div class="form-grid">
                   <div class="field">
                     <label for="publication-tick-font-size">Tick Font Size</label>
@@ -892,6 +906,17 @@
                     <input id="publication-axis-line-width" type="number" min="0" max="12" step="0.5" value="1" />
                   </div>
                 </div>
+                <div class="form-grid">
+                  <div class="field">
+                    <label for="publication-x-title-standoff">X-title Distance</label>
+                    <input id="publication-x-title-standoff" type="number" min="0" max="160" step="1" value="18" />
+                  </div>
+                  <div class="field">
+                    <label for="publication-y-title-standoff">Y-title Distance</label>
+                    <input id="publication-y-title-standoff" type="number" min="0" max="160" step="1" value="18" />
+                  </div>
+                </div>
+                <p class="field-hint">Title distance is measured in pixels from the corresponding plotting axis.</p>
                 <div class="form-grid">
                   <div class="field">
                     <label for="publication-x-min">X Min</label>
@@ -914,6 +939,48 @@
                   <button id="publication-reset-axes" class="ghost-button" type="button">
                     Reset Axis Autorange
                   </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="field-card">
+              <h3>Panel Label</h3>
+              <div class="field-grid">
+                <label class="checkbox-row checkbox-row-compact" for="publication-panel-enabled">
+                  <input id="publication-panel-enabled" type="checkbox" />
+                  Show panel label
+                </label>
+                <div data-publication-panel-controls hidden>
+                  <div class="field-grid">
+                    <div class="field">
+                      <label for="publication-panel-text">Label Text</label>
+                      <input id="publication-panel-text" type="text" value="(a)" placeholder="(a) or $\mathbf{(a)}$" />
+                    </div>
+                    <div class="form-grid">
+                      <div class="field">
+                        <label for="publication-panel-position">Position</label>
+                        <select id="publication-panel-position">
+                          <option value="top-left">top left</option>
+                          <option value="top-right">top right</option>
+                        </select>
+                      </div>
+                      <div class="field">
+                        <label for="publication-panel-font-size">Font Size</label>
+                        <input id="publication-panel-font-size" type="number" min="6" max="72" step="1" value="20" />
+                      </div>
+                    </div>
+                    <div class="form-grid">
+                      <div class="field">
+                        <label for="publication-panel-x-offset">Horizontal Inset</label>
+                        <input id="publication-panel-x-offset" type="number" min="0" max="160" step="1" value="12" />
+                      </div>
+                      <div class="field">
+                        <label for="publication-panel-y-offset">Vertical Inset</label>
+                        <input id="publication-panel-y-offset" type="number" min="0" max="160" step="1" value="12" />
+                      </div>
+                    </div>
+                    <p class="field-hint">Insets move the label inward from the selected corner, in pixels.</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -966,6 +1033,7 @@
 
             <div class="field-card">
               <h3>Traces</h3>
+              <p class="field-hint publication-math-hint">Trace display names also support <code>$...$</code> LaTeX / MathText.</p>
               <div class="trace-batch-controls">
                 <div class="form-grid">
                   <div class="field">

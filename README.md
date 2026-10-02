@@ -35,10 +35,14 @@ the current session and are not uploaded to a project backend.
   evaporation, flags, and manual Used overrides.
 - Fit concentration-level CMC/CAC transitions with pure numpy/pandas models.
 - Export PNG, SVG, JSON provenance, or send a plot to the Publication Plot tab.
-- Switch raw surface-tension traces between point-to-point lines and an edge-safe
-  local-linear smooth. Averaged replicates use pointwise ±1 SD error bars; single
-  traces fall back to local fitted-residual ±1 SD. The switch is available in Time
-  Series, Compare, and Publication Plot; volume and derived traces are unchanged.
+- Choose three curve styles in Time Series, Compare, and Publication Plot:
+  point-to-point, smooth + error bars, or smooth + shaded band. Both smooth styles
+  use an edge-safe local-linear fit. Bands show every available pointwise ±1 SD;
+  bars are thinned for readability. Averaged replicates use replicate sample SD;
+  single traces use local residual SD as a noise estimate, not a confidence
+  interval. Volume and derived traces are unchanged.
+- Save browser preferences through `Settings` beside Runtime, including default
+  curve style, average/volume options, Y-axis span, and publication time units.
 - Style plots for papers, posters, and presentations without changing the
   source analysis data.
 
@@ -118,6 +122,29 @@ memory for the current session.
 - Adjust Y span or manual Y limits.
 - Export PNG/SVG or send the plot to Publication Plot.
 - Duplicate marked curves are skipped by a stable data key.
+- Drag a row's handle (mouse or touch), or use its up/down buttons, to reorder
+  curves and the plot legend. Curve labels, selections, colors, and dash patterns
+  keep their identities. Session JSON preserves the order.
+- `Clear` opens a menu; a second click chooses `Remove Selected`,
+  `Remove Unselected`, or `Clear All`. Opening the menu does not delete curves.
+
+### Settings
+
+Open `Settings` in the upper-right Runtime area and click `Save Settings`.
+Preferences survive reopening on the same browser/site through local storage;
+source files and analysis results are not stored there. If storage is unavailable,
+the dialog reports that preferences can only apply during the current visit.
+
+The new-file preference either keeps current Time Series controls or resets them
+to saved defaults. Preserved controls include row/experiment ranges, curve style,
+average options, trend/noise parameters, evaporation reference, and axis limits.
+Analysis results always clear for a new file. `Reset Inputs` restores saved
+defaults while keeping the selected file. Session import keeps its restored
+controls for the first source-file reselection even in reset mode.
+
+Defaults apply on opening, on `Reset Inputs`, or when selecting a new file in
+reset mode. Publication Plot inherits the incoming curve style; its saved seconds
+preference converts newly copied millisecond figures automatically.
 
 ### Publication Plot
 
@@ -259,6 +286,9 @@ node tests/test_session_manager.js
 node tests/test_dom_utils.js
 node tests/test_charts.js
 node tests/test_cmc_workflow.js
+node tests/test_publication_plot.js
+node tests/test_settings.js
+node tests/test_compare_interactions.js
 ```
 
 Check JavaScript syntax:

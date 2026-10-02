@@ -13,7 +13,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="./assets/icons/favicon-32.png?v=20260424b" />
     <link rel="apple-touch-icon" sizes="180x180" href="./assets/icons/apple-touch-icon.png?v=20260424b" />
     <link rel="manifest" href="./site.webmanifest?v=20260424b" />
-    <link rel="stylesheet" href="./assets/css/main.css?v=20260824a" />
+    <link rel="stylesheet" href="./assets/css/main.css?v=20261002a" />
     <script>window.PlotlyConfig = { MathJaxConfig: "local" };</script>
     <script
       src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_SVG.js"
@@ -23,14 +23,15 @@
     <script src="./assets/js/python-sources.js?v=20260821b" defer></script>
     <script src="./assets/js/dom-utils.js?v=20260501a" defer></script>
     <script src="./assets/js/downloads.js?v=20260501a" defer></script>
-    <script src="./assets/js/session-manager.js?v=20260824a" defer></script>
+    <script src="./assets/js/settings.js?v=20261002a" defer></script>
+    <script src="./assets/js/session-manager.js?v=20261002a" defer></script>
     <script src="./assets/js/cmc-workflow.js?v=20260515b" defer></script>
-    <script src="./assets/js/charts.js?v=20260821b" defer></script>
-    <script src="./assets/js/publication-plot.js?v=20260824a" defer></script>
+    <script src="./assets/js/charts.js?v=20261002a" defer></script>
+    <script src="./assets/js/publication-plot.js?v=20261002a" defer></script>
     <script src="./assets/js/pyodide-client.js?v=20260424a" defer></script>
-    <script src="./assets/js/time-series-module.js?v=20260821b" defer></script>
-    <script src="./assets/js/compare-module.js?v=20260821b" defer></script>
-    <script src="./assets/js/app.js?v=20260515c" defer></script>
+    <script src="./assets/js/time-series-module.js?v=20261002a" defer></script>
+    <script src="./assets/js/compare-module.js?v=20261002a" defer></script>
+    <script src="./assets/js/app.js?v=20261002a" defer></script>
   </head>
   <body>
     <main class="app-shell">
@@ -42,7 +43,10 @@
         <div class="status-panel">
           <div class="status-row">
             <span class="status-label">Runtime</span>
-            <span class="runtime-tag" data-runtime-tag data-ready="false">Booting</span>
+            <div class="runtime-actions">
+              <span class="runtime-tag" data-runtime-tag data-ready="false">Booting</span>
+              <button id="settings-open" class="ghost-button compact-button" type="button">Settings</button>
+            </div>
           </div>
           <p class="status-text" data-status-text>Preparing browser-local Python runtime...</p>
           <div class="button-row">
@@ -53,6 +57,50 @@
           </div>
         </div>
       </header>
+
+
+      <dialog id="settings-dialog" class="help-dialog settings-dialog">
+        <div class="help-dialog-body">
+          <div class="help-dialog-header">
+            <h3>Settings</h3>
+            <button id="settings-close" class="ghost-button" type="button">Close</button>
+          </div>
+          <p>Save your defaults on this browser. They remain available after closing and reopening the page.</p>
+          <form id="settings-form" class="field-grid">
+            <div class="field">
+              <label for="settings-new-file">When selecting a new Time Series file</label>
+              <select id="settings-new-file" data-setting="newFileBehavior">
+                <option value="preserve">Keep current plot settings</option>
+                <option value="reset">Reset to saved defaults</option>
+              </select>
+              <p class="field-hint">Keeps or resets row/experiment ranges, curve style, average options, trend/noise controls, volume overlay, and axis limits. Analysis results always clear for the new file.</p>
+            </div>
+            <div class="field">
+              <label for="settings-plot-style">Default curve style</label>
+              <select id="settings-plot-style" data-setting="defaultPlotStyle">
+                <option value="raw">Point-to-point</option>
+                <option value="error-bars">Smooth + Error Bars</option>
+                <option value="band">Smooth + Shaded Band</option>
+              </select>
+              <p class="field-hint">For Time Series and Compare on opening. Publication Plot inherits the incoming curve style and lets you change it.</p>
+            </div>
+            <label class="checkbox-row" for="settings-average"><input id="settings-average" type="checkbox" data-setting="avgOnly" />Avg only by default</label>
+            <label class="checkbox-row" for="settings-original"><input id="settings-original" type="checkbox" data-setting="showOriginalWithAvg" />Show original series with average</label>
+            <label class="checkbox-row" for="settings-volume"><input id="settings-volume" type="checkbox" data-setting="showVolumeOverlay" />Show evaporation reference by default</label>
+            <div class="field">
+              <label for="settings-y-span">Default Y-axis span (%)</label>
+              <input id="settings-y-span" type="number" min="40" max="400" step="5" data-setting="ySpanPercent" />
+            </div>
+            <label class="checkbox-row" for="settings-seconds"><input id="settings-seconds" type="checkbox" data-setting="publicationTimeSeconds" />Convert time to seconds when sending to Publication Plot</label>
+            <p class="field-hint">Shaded bands show pointwise ±1 replicate SD when available. A single trace uses local residual SD as a noise estimate, not a confidence interval.</p>
+            <div class="button-row">
+              <button class="primary-button" type="submit">Save Settings</button>
+              <button id="settings-reset" class="ghost-button" type="button">Restore Defaults</button>
+            </div>
+            <p id="settings-feedback" class="field-hint" role="status" aria-live="polite"></p>
+          </form>
+        </div>
+      </dialog>
 
       <div class="error-banner" data-error-box hidden>
         <strong>Runtime / Analysis Error</strong>
@@ -148,14 +196,13 @@
                   >
                     Analyze and Plot
                   </button>
-                  <label
-                    class="plot-style-switch"
-                    for="plot-scientific-style"
-                    title="Edge-safe local-linear smoothing; error bars use replicate ±1 SD when available, otherwise local residual ±1 SD."
-                  >
-                    <input id="plot-scientific-style" type="checkbox" />
-                    <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
-                    <span>Smooth + Error Bars</span>
+                  <label class="plot-style-picker" for="plot-line-style">
+                    <span>Curve Style</span>
+                    <select id="plot-line-style">
+                      <option value="raw">Point-to-point</option>
+                      <option value="error-bars">Smooth + Error Bars</option>
+                      <option value="band">Smooth + Shaded Band</option>
+                    </select>
                   </label>
                   <button id="plot-export" class="secondary-button" type="button" disabled>
                     Export PNG
@@ -347,15 +394,14 @@
                 <button id="compare-plot" class="primary-button" type="button">
                   Plot Selected
                 </button>
-                <label
-                  class="plot-style-switch"
-                  for="compare-scientific-style"
-                  title="Edge-safe local-linear smoothing; error bars use replicate ±1 SD when available, otherwise local residual ±1 SD."
-                >
-                  <input id="compare-scientific-style" type="checkbox" />
-                  <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
-                  <span>Smooth + Error Bars</span>
-                </label>
+                <label class="plot-style-picker" for="compare-line-style">
+                    <span>Curve Style</span>
+                    <select id="compare-line-style">
+                      <option value="raw">Point-to-point</option>
+                      <option value="error-bars">Smooth + Error Bars</option>
+                      <option value="band">Smooth + Shaded Band</option>
+                    </select>
+                  </label>
                 <button id="compare-export" class="secondary-button" type="button" disabled>
                   Export PNG
                 </button>
@@ -365,12 +411,14 @@
                 <button id="compare-send-publication" class="ghost-button" type="button" disabled>
                   Send to Publication Plot
                 </button>
-                <button id="compare-remove-selected" class="ghost-button" type="button">
-                  Remove Selected
-                </button>
-                <button id="compare-clear" class="ghost-button" type="button">
-                  Clear All
-                </button>
+                <div class="clear-menu-wrapper">
+                  <button id="compare-clear" class="ghost-button" type="button" aria-expanded="false" aria-controls="compare-clear-menu">Clear ▾</button>
+                  <div id="compare-clear-menu" class="clear-menu" hidden>
+                    <button id="compare-remove-selected" class="ghost-button" type="button">Remove Selected</button>
+                    <button id="compare-remove-unselected" class="ghost-button" type="button">Remove Unselected</button>
+                    <button id="compare-clear-all" class="ghost-button" type="button">Clear All</button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -417,6 +465,8 @@
 
         <div class="table-card">
           <h3>Marked Curves</h3>
+          <p class="field-hint">Drag the handle to reorder curves and the plot legend. Use ↑ / ↓ for keyboard or touch.</p>
+          <p class="field-hint" data-compare-order-status role="status" aria-live="polite"></p>
           <div class="empty-state" data-compare-empty>
             Use Mark for Compare in the Time Series tab to add visible curves.
           </div>
@@ -435,6 +485,7 @@
                       <span>Select</span>
                     </label>
                   </th>
+                  <th>Order</th>
                   <th>Index</th>
                   <th>File</th>
                   <th>Experiment Range</th>
@@ -794,7 +845,7 @@
         <div class="publication-layout">
           <div class="controls-stack publication-controls-panel">
             <div class="field-card">
-              <h3>General</h3>
+              <h3 class="publication-heading publication-heading-general">General</h3>
               <div class="field-grid">
                 <div class="info-box" data-publication-status>
                   No figure loaded yet. Send a chart from an analysis tab.
@@ -830,15 +881,14 @@
                   </div>
                   <div class="publication-style-warning" data-publication-style-warning hidden></div>
                   <div class="button-row">
-                    <label
-                      class="plot-style-switch"
-                      for="publication-scientific-style"
-                      title="Edge-safe local-linear smoothing; error bars use replicate ±1 SD when available, otherwise local residual ±1 SD."
-                    >
-                      <input id="publication-scientific-style" type="checkbox" disabled />
-                      <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
-                      <span>Smooth + Error Bars</span>
-                    </label>
+                    <label class="plot-style-picker" for="publication-line-style">
+                    <span>Curve Style</span>
+                    <select id="publication-line-style" disabled>
+                      <option value="raw">Point-to-point</option>
+                      <option value="error-bars">Smooth + Error Bars</option>
+                      <option value="band">Smooth + Shaded Band</option>
+                    </select>
+                  </label>
                     <button id="publication-undo-style" class="ghost-button compact-button" type="button" disabled>
                       Undo Style Change
                     </button>
@@ -877,7 +927,7 @@
             </div>
 
             <div class="field-card">
-              <h3>Axes</h3>
+              <h3 class="publication-heading publication-heading-axes">Axes</h3>
               <div class="field-grid">
                 <div class="field">
                   <label for="publication-x-title">X-axis Title</label>
@@ -944,7 +994,7 @@
             </div>
 
             <div class="field-card">
-              <h3>Panel Label</h3>
+              <h3 class="publication-heading publication-heading-panel">Panel Label</h3>
               <div class="field-grid">
                 <label class="checkbox-row checkbox-row-compact" for="publication-panel-enabled">
                   <input id="publication-panel-enabled" type="checkbox" />
@@ -986,7 +1036,7 @@
             </div>
 
             <div class="field-card">
-              <h3>Legend</h3>
+              <h3 class="publication-heading publication-heading-legend">Legend</h3>
               <div class="field-grid">
                 <label class="checkbox-row checkbox-row-compact" for="publication-show-legend">
                   <input id="publication-show-legend" type="checkbox" checked />
@@ -1032,7 +1082,7 @@
             </div>
 
             <div class="field-card">
-              <h3>Traces</h3>
+              <h3 class="publication-heading publication-heading-traces">Traces</h3>
               <p class="field-hint publication-math-hint">Trace display names also support <code>$...$</code> LaTeX / MathText.</p>
               <div class="trace-batch-controls">
                 <div class="form-grid">

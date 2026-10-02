@@ -63,6 +63,7 @@
     const halfWindow = Math.floor(windowSize / 2);
 
     return source.map((value, index) => {
+      if (finiteNumberOrNull(value) === null) return null;
       const radius = Math.min(halfWindow, index, source.length - 1 - index);
       if (radius === 0) {
         return finiteNumberOrNull(value);
@@ -148,8 +149,8 @@
       finiteNumberOrNull(value) !== null
     );
     const fullError = hasSuppliedErrors
-      ? suppliedErrors.map((value) => {
-          const numeric = finiteNumberOrNull(value);
+      ? source.map((_, index) => {
+          const numeric = finiteNumberOrNull(suppliedErrors[index]);
           return numeric === null ? null : Math.abs(numeric);
         })
       : localResidualErrors(source, y, windowSize);
@@ -160,6 +161,7 @@
     return {
       y,
       error,
+      fullError,
       windowSize,
       errorKind: hasSuppliedErrors ? "replicate-sd" : "local-residual-sd",
     };
@@ -177,13 +179,71 @@
     return Boolean(meta && meta.dataType === "surface-tension" && Array.isArray(meta.originalY));
   }
 
+  function normalizePlotStyle(value, legacyEnabled) {
+    return ["raw", "error-bars", "band"].includes(value)
+      ? value
+      : (value === true || legacyEnabled ? "error-bars" : "raw");
+  }
+
+  function isBandTrace(trace) {
+    const meta = surfaceLabMeta(trace);
+    return Boolean(meta && meta.dataType === "uncertainty-band");
+  }
+
+  function bandColor(color) {
+    const hex = String(color || TEXT_COLOR).replace(/^#/, "");
+    if (/^[\da-f]{6}$/i.test(hex)) {
+      return `rgba(${parseInt(hex.slice(0, 2), 16)},${parseInt(hex.slice(2, 4), 16)},${parseInt(hex.slice(4, 6), 16)},0.14)`;
+    }
+    const rgb = String(color || "").match(/^rgba?\(([^)]+)\)$/i);
+    return rgb ? `rgba(${rgb[1].split(",").slice(0, 3).join(",")},0.14)` : "rgba(31,31,31,0.14)";
+  }
+
+  // Band boundaries are rendering helpers, not additional measured curves.
+  // Keep them out of editors/session sources and regenerate from the raw data.
+  function expandBandTraces(data) {
+    return data.filter((trace) => !isBandTrace(trace)).flatMap((trace, index) => {
+      const meta = surfaceLabMeta(trace);
+      if (!isScientificSurfaceTensionTrace(trace) || meta.plotStyle !== "band") {
+        return [trace];
+      }
+      const scientific = buildScientificSeries(meta.originalY, meta.originalX, meta.errorValues);
+      const group = trace.legendgroup || `surface-band-${index}`;
+      trace.legendgroup = group;
+      const bounds = [-1, 1].map((direction) => ({
+        type: "scatter",
+        mode: "lines",
+        x: trace.x,
+        y: scientific.y.map((value, pointIndex) => {
+          const deviation = finiteNumberOrNull(scientific.fullError[pointIndex]);
+          // Missing uncertainty must stay a gap, never a fabricated zero SD.
+          return value === null || deviation === null ? null : value + direction * deviation;
+        }),
+        yaxis: trace.yaxis,
+        name: trace.name,
+        legendgroup: group,
+        showlegend: false,
+        visible: trace.visible,
+        opacity: trace.opacity,
+        line: { width: 0, color: trace.line.color },
+        fill: direction === 1 ? "tonexty" : "none",
+        fillcolor: bandColor(trace.line.color),
+        hoverinfo: "skip",
+        connectgaps: false,
+        meta: { surfaceLab: { dataType: "uncertainty-band", errorKind: scientific.errorKind } },
+      }));
+      return [...bounds, trace];
+    });
+  }
+
   function applyScientificTraceStyle(
     trace,
     enabled,
     originalY,
     originalX,
     suppliedErrors,
-    suppliedErrorKind
+    suppliedErrorKind,
+    styleIndex
   ) {
     if (!trace || typeof trace !== "object") {
       return trace;
@@ -194,6 +254,8 @@
     const existingSurfaceLab = existingMeta.surfaceLab && typeof existingMeta.surfaceLab === "object"
       ? existingMeta.surfaceLab
       : {};
+    const plotStyle = normalizePlotStyle(enabled);
+    const previousStyle = existingSurfaceLab.plotStyle;
     const rawY = Array.isArray(existingSurfaceLab.originalY)
       ? existingSurfaceLab.originalY.slice()
       : (Array.isArray(originalY) ? originalY.slice() : Array.isArray(trace.y) ? trace.y.slice() : []);
@@ -225,12 +287,16 @@
         originalErrorY,
         baseLineShape,
         baseLineSmoothing,
-        scientificStyleEnabled: Boolean(enabled),
+        baseLineDash: Object.prototype.hasOwnProperty.call(existingSurfaceLab, "baseLineDash")
+          ? existingSurfaceLab.baseLineDash : (trace.line && trace.line.dash) || "solid",
+        styleIndex: Number.isInteger(styleIndex) ? styleIndex : existingSurfaceLab.styleIndex || 0,
+        scientificStyleEnabled: plotStyle !== "raw",
+        plotStyle,
       },
     };
     trace.line = trace.line || {};
 
-    if (enabled) {
+    if (plotStyle !== "raw") {
       const scientific = buildScientificSeries(rawY, rawX, errorValues);
       trace.y = scientific.y;
       trace.line.shape = "spline";
@@ -244,6 +310,12 @@
         width: 4,
       };
       trace.meta.surfaceLab.errorKind = scientific.errorKind;
+      if (plotStyle === "band") {
+        delete trace.error_y;
+        if (previousStyle !== "band") {
+          trace.line.dash = ["solid", "dash", "dashdot", "dot"][trace.meta.surfaceLab.styleIndex % 4];
+        }
+      }
     } else {
       trace.y = rawY;
       if (baseLineShape === null || typeof baseLineShape === "undefined") {
@@ -262,16 +334,19 @@
         delete trace.error_y;
       }
     }
+    if (previousStyle === "band" && plotStyle !== "band") {
+      trace.line.dash = trace.meta.surfaceLab.baseLineDash;
+    }
     return trace;
   }
 
-  function scientificRangeSeries(seriesList) {
+  function scientificRangeSeries(seriesList, plotStyle) {
     return seriesList.map((series) => {
       const scientific = buildScientificSeries(series.y, series.x, series.error);
       const rangeValues = [];
       scientific.y.forEach((value, index) => {
         const numeric = finiteNumberOrNull(value);
-        const deviation = finiteNumberOrNull(scientific.error[index]);
+        const deviation = finiteNumberOrNull((plotStyle === "band" ? scientific.fullError : scientific.error)[index]);
         if (numeric === null) {
           return;
         }
@@ -390,8 +465,9 @@
   function resolveTimeSeriesYRange(rawPayload, options) {
     const opts = options || {};
     const trendPayload = opts.trendPayload || null;
-    const rawRangeSeries = opts.scientificStyle
-      ? scientificRangeSeries(rawPayload.series)
+    const plotStyle = normalizePlotStyle(opts.plotStyle, opts.scientificStyle);
+    const rawRangeSeries = plotStyle !== "raw"
+      ? scientificRangeSeries(rawPayload.series, plotStyle)
       : rawPayload.series;
     const rangeSeries = trendPayload
       ? rawRangeSeries.concat(trendPayload.series)
@@ -489,11 +565,12 @@
       }
       const trace = applyScientificTraceStyle(
         buildRawTrace(series, index),
-        Boolean(opts.scientificStyle),
+        normalizePlotStyle(opts.plotStyle, opts.scientificStyle),
         series.y,
         series.x,
         series.error,
-        series.errorKind
+        series.errorKind,
+        index
       );
       if (trendPayload) {
         trace.line.width = 1.4;
@@ -520,7 +597,7 @@
 
     await Plotly.react(
       target,
-      traces,
+      expandBandTraces(traces),
       baseLayout({
         xLabel: rawPayload.xLabel,
         yLabel: "I.T. (mN/m)",
@@ -567,6 +644,7 @@
       ? curves.filter((curve) => curve.dataType !== "volume" && curve.yAxis !== "y2")
       : curves;
     const traces = curves.map((curve, index) => {
+      const colorIndex = Number.isInteger(curve.displayIndex) && curve.displayIndex > 0 ? curve.displayIndex - 1 : index;
       const label = String(curve.displayLabel || "").trim() || "#" + curve.displayIndex;
       const hoverLabel = domUtils.escapeHtml(label);
       const hoverSelection = domUtils.escapeHtml(curve.selection || "");
@@ -581,7 +659,7 @@
         yaxis,
         line: {
           width: isVolume ? 1.4 : 2,
-          color: seriesColor(index),
+          color: seriesColor(colorIndex),
           dash: isVolume ? "dot" : curve.dataType === "trend" ? "dash" : "solid",
         },
         opacity: isVolume ? 0.68 : undefined,
@@ -590,24 +668,26 @@
       if (!isVolume && curve.dataType !== "trend") {
         applyScientificTraceStyle(
           trace,
-          Boolean(opts.scientificStyle),
+          normalizePlotStyle(opts.plotStyle, opts.scientificStyle),
           curve.y,
           curve.x,
           curve.error,
-          curve.errorKind
+          curve.errorKind,
+          colorIndex
         );
       }
       return trace;
     });
 
-    const rangeCurves = opts.scientificStyle && hasPrimaryCurves
-      ? scientificRangeSeries(primaryRangeCurves.filter((curve) => curve.dataType !== "trend"))
+    const plotStyle = normalizePlotStyle(opts.plotStyle, opts.scientificStyle);
+    const rangeCurves = plotStyle !== "raw" && hasPrimaryCurves
+      ? scientificRangeSeries(primaryRangeCurves.filter((curve) => curve.dataType !== "trend"), plotStyle)
           .concat(primaryRangeCurves.filter((curve) => curve.dataType === "trend"))
       : primaryRangeCurves;
 
     await Plotly.react(
       target,
-      traces,
+      expandBandTraces(traces),
       baseLayout({
         xLabel: opts.xLabel || "Time",
         yLabel: hasPrimaryCurves ? opts.yLabel || "I.T. (mN/m)" : opts.secondaryYLabel || "Droplet volume, V (μL)",
@@ -809,6 +889,9 @@
     scientificRangeSeries,
     applyScientificTraceStyle,
     isScientificSurfaceTensionTrace,
+    normalizePlotStyle,
+    expandBandTraces,
+    isBandTrace,
     SERIES_PALETTE,
   };
 })();

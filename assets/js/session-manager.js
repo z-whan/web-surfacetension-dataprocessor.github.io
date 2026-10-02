@@ -49,6 +49,12 @@
     return Object.keys(value).reduce((total, key) => total + countArrayValues(value[key]), 0);
   }
 
+  function sanitizePlotStyle(value) {
+    const style = isPlainObject(value) ? value : {};
+    return { mode: ["raw", "error-bars", "band"].includes(style.mode)
+      ? style.mode : style.scientificStyle ? "error-bars" : "raw" };
+  }
+
   function sanitizeTimeSeriesState(value, warnings) {
     if (!isPlainObject(value)) {
       warnings.push("Time Series state was missing or invalid.");
@@ -87,6 +93,7 @@
         methodKey: safeString(noise.methodKey, ""),
         parameters: cloneJson(isPlainObject(noise.parameters) ? noise.parameters : {}),
       },
+      plotStyle: sanitizePlotStyle(value.plotStyle),
       yAxis: {
         spanPercent: safeNumber(yAxis.spanPercent, 100),
         manualRange: Array.isArray(yAxis.manualRange)
@@ -124,6 +131,7 @@
       lastPlottedDisplayIndexes: Array.isArray(value.lastPlottedDisplayIndexes)
         ? value.lastPlottedDisplayIndexes.map((item) => safeNumber(item, null)).filter((item) => item !== null)
         : [],
+      plotStyle: sanitizePlotStyle(value.plotStyle),
       yAxis: {
         spanPercent: safeNumber(yAxis.spanPercent, 100),
         manualRange: Array.isArray(yAxis.manualRange)
@@ -161,7 +169,9 @@
       defaultLayout: cloneJson(isPlainObject(value.defaultLayout) ? value.defaultLayout : {}),
       defaultExportSettings: cloneJson(isPlainObject(value.defaultExportSettings) ? value.defaultExportSettings : {}),
       defaultTraceStyles: cloneJson(Array.isArray(value.defaultTraceStyles) ? value.defaultTraceStyles : []),
-      scientificStyleEnabled: Boolean(value.scientificStyleEnabled),
+      scientificStyleEnabled: value.plotStyle ? value.plotStyle !== "raw" : Boolean(value.scientificStyleEnabled),
+      plotStyle: ["raw", "error-bars", "band"].includes(value.plotStyle) ? value.plotStyle
+        : value.scientificStyleEnabled ? "error-bars" : "raw",
       timeUnitState: cloneJson(isPlainObject(value.timeUnitState) ? value.timeUnitState : {}),
       panelAnnotation: cloneJson(isPlainObject(value.panelAnnotation) ? value.panelAnnotation : {}),
       styleMeta: cloneJson(isPlainObject(value.styleMeta) ? value.styleMeta : {}),

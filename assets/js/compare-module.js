@@ -146,7 +146,7 @@
         nextDisplayIndex: 1,
         lastPlottedIds: [],
         manualYRange: null,
-        scientificStyle: false,
+        plotStyle: "raw",
         labelUpdateTimer: null,
       };
 
@@ -161,16 +161,25 @@
         sendPublicationButton: document.querySelector("#compare-send-publication"),
         removeSelectedButton: document.querySelector("#compare-remove-selected"),
         clearButton: document.querySelector("#compare-clear"),
+        clearMenu: document.querySelector("#compare-clear-menu"),
+        clearAllButton: document.querySelector("#compare-clear-all"),
+        removeUnselectedButton: document.querySelector("#compare-remove-unselected"),
+        orderStatus: document.querySelector("[data-compare-order-status]"),
         ySpan: document.querySelector("#compare-y-span"),
         ySpanValue: document.querySelector("[data-compare-y-span-value]"),
         yMin: document.querySelector("#compare-y-min"),
         yMax: document.querySelector("#compare-y-max"),
         selectAll: document.querySelector("#compare-select-all"),
-        scientificStyle: document.querySelector("#compare-scientific-style"),
+        scientificStyle: document.querySelector("#compare-line-style"),
       };
     }
 
     bind() {
+      const defaults = window.SurfaceLabSettings.get();
+      this.state.plotStyle = defaults.defaultPlotStyle;
+      this.dom.scientificStyle.value = this.state.plotStyle;
+      this.dom.ySpan.value = String(defaults.ySpanPercent);
+      this.bindReordering();
       this.render();
       this.updateYSpanLabel();
       this.charts.clearPlot(this.dom.canvas);
@@ -240,21 +249,37 @@
         this.plotSelected();
       });
       this.dom.scientificStyle.addEventListener("change", () => {
-        this.state.scientificStyle = Boolean(this.dom.scientificStyle.checked);
-        if (this.state.lastPlottedIds.length) {
-          this.plotSelected({ quiet: true });
-        }
-        this.setStatus(
-          this.state.scientificStyle
-            ? "Scientific plot style enabled (edge-safe local fit; replicate SD when available)."
-            : "Point-to-point compare style restored."
-        );
+        this.state.plotStyle = this.dom.scientificStyle.value;
+        if (this.state.lastPlottedIds.length) this.plotSelected({ quiet: true });
+        this.setStatus(this.state.plotStyle === "band"
+          ? "Shaded band: ±1 replicate SD when available; otherwise local residual SD (noise estimate)."
+          : this.state.plotStyle === "error-bars" ? "Smooth + Error Bars enabled." : "Point-to-point compare style restored.");
       });
       this.dom.removeSelectedButton.addEventListener("click", () => {
+        this.closeClearMenu();
         this.removeCurves(Array.from(this.state.selectedIds));
       });
-      this.dom.clearButton.addEventListener("click", () => {
+      this.dom.removeUnselectedButton.addEventListener("click", () => {
+        this.closeClearMenu();
+        const ids = this.state.curves.filter((curve) => !this.state.selectedIds.has(curve.id)).map((curve) => curve.id);
+        this.removeCurves(ids);
+      });
+      this.dom.clearAllButton.addEventListener("click", () => {
+        this.closeClearMenu();
         this.clearAll();
+      });
+      this.dom.clearButton.addEventListener("click", () => {
+        this.dom.clearMenu.hidden = !this.dom.clearMenu.hidden;
+        this.dom.clearButton.setAttribute("aria-expanded", String(!this.dom.clearMenu.hidden));
+      });
+      document.addEventListener("click", (event) => {
+        if (!event.target.closest(".clear-menu-wrapper")) this.closeClearMenu();
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !this.dom.clearMenu.hidden) {
+          this.closeClearMenu();
+          this.dom.clearButton.focus();
+        }
       });
       this.dom.exportButton.addEventListener("click", async () => {
         if (!this.state.lastPlottedIds.length) {
@@ -291,6 +316,73 @@
       this.dom.yMax.addEventListener("change", () => {
         this.handleYRangeInputChange();
       });
+    }
+
+    closeClearMenu() {
+      this.dom.clearMenu.hidden = true;
+      this.dom.clearButton.setAttribute("aria-expanded", "false");
+    }
+
+    bindReordering() {
+      const body = this.dom.tableBody;
+      const clearDrag = () => {
+        this.pointerDrag = null;
+        body.querySelectorAll(".drag-over, .dragging").forEach((row) => row.classList.remove("drag-over", "dragging"));
+      };
+      body.addEventListener("pointerdown", (event) => {
+        const handle = event.target.closest("[data-compare-drag-id]");
+        if (!handle || event.button !== 0) return;
+        this.pointerDrag = { id: Number(handle.dataset.compareDragId), pointerId: event.pointerId,
+          startX: event.clientX, startY: event.clientY, moved: false };
+        handle.setPointerCapture(event.pointerId);
+      });
+      body.addEventListener("pointermove", (event) => {
+        const drag = this.pointerDrag;
+        if (!drag || event.pointerId !== drag.pointerId) return;
+        if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 5 && !drag.moved) return;
+        drag.moved = true;
+        event.preventDefault();
+        body.querySelectorAll(".drag-over").forEach((row) => row.classList.remove("drag-over"));
+        const row = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-compare-row-id]");
+        if (row && body.contains(row)) row.classList.add("drag-over");
+        body.querySelector(`[data-compare-row-id="${drag.id}"]`)?.classList.add("dragging");
+      });
+      body.addEventListener("pointerup", (event) => {
+        const drag = this.pointerDrag;
+        if (!drag || event.pointerId !== drag.pointerId) return;
+        const row = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-compare-row-id]");
+        clearDrag();
+        if (!drag.moved || !row || !body.contains(row)) return;
+        const rect = row.getBoundingClientRect();
+        this.reorderCurve(drag.id, Number(row.dataset.compareRowId), event.clientY > rect.top + rect.height / 2);
+      });
+      body.addEventListener("pointercancel", clearDrag);
+      body.addEventListener("lostpointercapture", clearDrag);
+      body.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-compare-move-id]");
+        if (!button) return;
+        const id = Number(button.dataset.compareMoveId);
+        const direction = Number(button.dataset.compareMoveDirection);
+        const index = this.state.curves.findIndex((curve) => curve.id === id);
+        const target = this.state.curves[index + direction];
+        if (target) this.reorderCurve(id, target.id, direction > 0);
+        const replacement = body.querySelector(`[data-compare-move-id="${id}"][data-compare-move-direction="${direction}"]`);
+        if (replacement && !replacement.disabled) replacement.focus();
+        else body.querySelector(`[data-compare-drag-id="${id}"]`).focus();
+      });
+    }
+
+    reorderCurve(id, targetId, after) {
+      if (id === targetId) return;
+      const source = this.state.curves.findIndex((curve) => curve.id === id);
+      if (source < 0 || !this.state.curves.some((curve) => curve.id === targetId)) return;
+      this.cancelPendingLabelUpdate();
+      const [curve] = this.state.curves.splice(source, 1);
+      const destination = this.state.curves.findIndex((item) => item.id === targetId);
+      this.state.curves.splice(destination + (after ? 1 : 0), 0, curve);
+      this.render();
+      this.dom.orderStatus.textContent = `${curveDisplayLabel(curve)} moved to position ${this.state.curves.indexOf(curve) + 1}. Legend order updated.`;
+      if (this.state.lastPlottedIds.length) this.plotSelected({ quiet: true });
     }
 
     handleYSpanChange() {
@@ -406,7 +498,7 @@
         secondaryYLabel: "Droplet volume, V (μL)",
         ySpanPercent: this.currentYSpanPercent(),
         explicitYRange: this.state.manualYRange,
-        scientificStyle: this.state.scientificStyle,
+        plotStyle: this.state.plotStyle,
       });
       this.state.lastPlottedIds = valid.map((curve) => curve.id);
       this.dom.exportButton.disabled = false;
@@ -472,11 +564,13 @@
       this.setYRangeInputsEnabled(this.state.curves.length > 0);
       this.syncYRangeInputsFromCurrentSelection();
       this.render();
-      this.setStatus("Removed selected compare curve entries.");
+      this.setStatus(`Removed ${idSet.size} compare curve ${idSet.size === 1 ? "entry" : "entries"}.`);
     }
 
     clearAll() {
       this.cancelPendingLabelUpdate();
+      this.closeClearMenu();
+      this.dom.orderStatus.textContent = "";
       this.state.curves = [];
       this.state.selectedIds.clear();
       this.state.lastPlottedIds = [];
@@ -508,9 +602,9 @@
       }
       const primary = selected.filter((curve) => curve.dataType !== "volume" && curve.yAxis !== "y2");
       let rangeSeries = primary.length ? primary : selected;
-      if (primary.length && this.state.scientificStyle && this.charts.scientificRangeSeries) {
+      if (primary.length && this.state.plotStyle !== "raw" && this.charts.scientificRangeSeries) {
         rangeSeries = this.charts.scientificRangeSeries(
-          primary.filter((curve) => curve.dataType !== "trend")
+          primary.filter((curve) => curve.dataType !== "trend"), this.state.plotStyle
         ).concat(primary.filter((curve) => curve.dataType === "trend"));
       }
       return this.charts.resolveSeriesYRange(rangeSeries, {
@@ -558,6 +652,8 @@
       this.dom.selectAll.disabled = marked === 0;
       this.dom.selectAll.checked = marked > 0 && selected === marked;
       this.dom.selectAll.indeterminate = selected > 0 && selected < marked;
+      this.dom.removeSelectedButton.disabled = selected === 0;
+      this.dom.removeUnselectedButton.disabled = selected === marked;
     }
 
     renderSummary(plottedCount, skippedCount) {
@@ -577,7 +673,7 @@
       this.dom.emptyState.hidden = this.state.curves.length > 0;
       domUtils.clear(this.dom.tableBody);
 
-      this.state.curves.forEach((curve) => {
+      this.state.curves.forEach((curve, index) => {
         const selectInput = domUtils.el("input", {
           attrs: {
             type: "checkbox",
@@ -604,8 +700,22 @@
           },
         });
 
-        const tr = domUtils.el("tr", {}, [
+        const orderControls = domUtils.el("div", { className: "curve-order-controls" }, [
+          domUtils.el("button", {
+            className: "curve-drag-handle", text: "⠿",
+            attrs: { type: "button", draggable: "false", "data-compare-drag-id": curve.id,
+              "aria-label": "Drag to reorder " + curveDisplayLabel(curve), title: "Drag to reorder" },
+          }),
+          ...[-1, 1].map((direction) => domUtils.el("button", {
+            className: "ghost-button compact-button", text: direction < 0 ? "↑" : "↓",
+            attrs: { type: "button", "data-compare-move-id": curve.id, "data-compare-move-direction": direction,
+              "aria-label": `Move ${curveDisplayLabel(curve)} ${direction < 0 ? "up" : "down"}` },
+            props: { disabled: direction < 0 ? index === 0 : index === this.state.curves.length - 1 },
+          })),
+        ]);
+        const tr = domUtils.el("tr", { attrs: { "data-compare-row-id": curve.id } }, [
           domUtils.el("td", {}, [selectInput]),
+          domUtils.el("td", {}, [orderControls]),
           domUtils.el("td", {}, [labelInput]),
           domUtils.el("td", {}, [
             domUtils.el("span", { className: "table-file", text: "[" + curve.sourceFileName + "]" }),
@@ -622,6 +732,10 @@
 
       this.renderSummary();
       this.updateSelectAllState();
+      this.dom.clearButton.disabled = !this.state.curves.length;
+      this.dom.clearAllButton.disabled = !this.state.curves.length;
+      this.dom.removeSelectedButton.disabled = !this.state.selectedIds.size;
+      this.dom.removeUnselectedButton.disabled = this.state.curves.every((curve) => this.state.selectedIds.has(curve.id));
     }
 
     getSessionState() {
@@ -647,7 +761,8 @@
           yMaxText: this.dom.yMax ? this.dom.yMax.value : "",
         },
         plotStyle: {
-          scientificStyle: Boolean(this.state.scientificStyle),
+          mode: this.state.plotStyle,
+          scientificStyle: this.state.plotStyle !== "raw",
         },
       };
     }
@@ -664,6 +779,8 @@
       }
 
       this.cancelPendingLabelUpdate();
+      this.closeClearMenu();
+      this.dom.orderStatus.textContent = "";
       this.state.curves = [];
       this.state.selectedIds.clear();
       this.state.lastPlottedIds = [];
@@ -685,15 +802,15 @@
         Array.isArray(input.selectedDisplayIndexes) ? input.selectedDisplayIndexes.map(Number) : []
       );
       this.state.curves.forEach((curve) => {
-        if (!selectedIndexes.size || selectedIndexes.has(curve.displayIndex)) {
+        if (!Array.isArray(input.selectedDisplayIndexes) || selectedIndexes.has(curve.displayIndex)) {
           this.state.selectedIds.add(curve.id);
         }
       });
 
       const yAxis = input.yAxis && typeof input.yAxis === "object" ? input.yAxis : {};
       const plotStyle = input.plotStyle && typeof input.plotStyle === "object" ? input.plotStyle : {};
-      this.state.scientificStyle = Boolean(plotStyle.scientificStyle);
-      this.dom.scientificStyle.checked = this.state.scientificStyle;
+      this.state.plotStyle = this.charts.normalizePlotStyle(plotStyle.mode, plotStyle.scientificStyle);
+      this.dom.scientificStyle.value = this.state.plotStyle;
       if (this.dom.ySpan && Number.isFinite(Number(yAxis.spanPercent))) {
         this.dom.ySpan.value = String(yAxis.spanPercent);
       }

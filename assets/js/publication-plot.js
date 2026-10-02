@@ -277,6 +277,8 @@
       return;
     }
     trace.x = scaleNumericArray(trace.x, factor);
+    const meta = trace.meta && trace.meta.surfaceLab;
+    if (meta && Array.isArray(meta.originalX)) meta.originalX = scaleNumericArray(meta.originalX, factor);
     if (trace.error_x && typeof trace.error_x === "object") {
       trace.error_x.array = scaleNumericArray(trace.error_x.array, factor);
       trace.error_x.arrayminus = scaleNumericArray(trace.error_x.arrayminus, factor);
@@ -574,7 +576,7 @@
           height: DEFAULT_HEIGHT,
         },
         defaultTraceStyles: [],
-        scientificStyleEnabled: false,
+        plotStyle: "raw",
         timeUnitState: createTimeUnitState(),
         panelAnnotation: createPanelAnnotationState(),
         styleMeta: createStyleMeta(),
@@ -588,7 +590,7 @@
         styleTemplate: document.querySelector("#publication-style-template"),
         activeStyle: document.querySelector("[data-publication-active-style]"),
         styleWarning: document.querySelector("[data-publication-style-warning]"),
-        scientificStyle: document.querySelector("#publication-scientific-style"),
+        scientificStyle: document.querySelector("#publication-line-style"),
         undoStyle: document.querySelector("#publication-undo-style"),
         title: document.querySelector("#publication-title"),
         titleClear: document.querySelector("#publication-title-clear"),
@@ -660,7 +662,7 @@
       this.dom.exportPng.disabled = !enabled;
       this.dom.exportSvg.disabled = !enabled;
       this.dom.scientificStyle.disabled = !enabled || !this.hasScientificSurfaceTensionTraces();
-      this.dom.scientificStyle.checked = Boolean(this.state.scientificStyleEnabled);
+      this.dom.scientificStyle.value = this.state.plotStyle;
       this.dom.timeSeconds.disabled = !enabled || !this.state.timeUnitState.eligible;
       this.dom.timeSeconds.checked = this.state.timeUnitState.current === "s";
       [
@@ -737,7 +739,7 @@
         layout: deepCopy(this.state.layout),
         exportSettings: deepCopy(this.state.exportSettings),
         styleMeta: deepCopy(this.state.styleMeta),
-        scientificStyleEnabled: Boolean(this.state.scientificStyleEnabled),
+        plotStyle: this.state.plotStyle,
         timeUnitState: deepCopy(this.state.timeUnitState),
         panelAnnotation: deepCopy(this.state.panelAnnotation),
       });
@@ -751,7 +753,7 @@
       const source = typeof plotElementOrId === "string"
         ? document.getElementById(plotElementOrId)
         : plotElementOrId;
-      const data = Array.from((source && source.data) || []);
+      const data = Array.from((source && source.data) || []).filter((trace) => !this.charts.isBandTrace(trace));
       if (!source || !data.length) {
         this.setPublicationStatus("No figure loaded yet. Send a chart from an analysis tab.");
         return false;
@@ -774,10 +776,9 @@
         config: deepCopy(copiedConfig),
       };
       const copiedData = deepCopy(figurePayload.data);
-      const scientificStyleEnabled = copiedData.some((trace) => {
-        const surfaceLab = trace && trace.meta && trace.meta.surfaceLab;
-        return Boolean(surfaceLab && surfaceLab.scientificStyleEnabled);
-      });
+      const styledTrace = copiedData.find((trace) => this.charts.isScientificSurfaceTensionTrace(trace));
+      const traceMeta = styledTrace && styledTrace.meta.surfaceLab;
+      const plotStyle = this.charts.normalizePlotStyle(traceMeta && traceMeta.plotStyle, traceMeta && traceMeta.scientificStyleEnabled);
       const sourceRect = source.getBoundingClientRect ? source.getBoundingClientRect() : null;
       const width = toFiniteNumber(layout.width, Math.round(sourceRect && sourceRect.width ? sourceRect.width : DEFAULT_WIDTH));
       const height = toFiniteNumber(layout.height, Math.round(sourceRect && sourceRect.height ? sourceRect.height : DEFAULT_HEIGHT));
@@ -808,12 +809,18 @@
         defaultLayout: deepCopy(publicationLayout),
         defaultExportSettings: deepCopy(exportSettings),
         defaultTraceStyles: cloneTraceStyles(copiedData),
-        scientificStyleEnabled,
+        plotStyle,
         timeUnitState,
         panelAnnotation,
         styleMeta: createStyleMeta(),
       };
       this.styleHistory = [];
+      if (window.SurfaceLabSettings.get().publicationTimeSeconds && timeUnitState.eligible && timeUnitState.current === "ms") {
+        this.state.data.forEach((trace) => scaleTraceTime(trace, 0.001));
+        scaleTimeLayout(this.state.layout, 0.001);
+        timeUnitState.current = "s";
+        setNested(this.state.layout, "xaxis.title.text", convertTimeUnitTitle(getAxisTitle(this.state.layout.xaxis || {}), "s"));
+      }
 
       this.activateTab("publication");
       this.applyPanelAnnotationToLayout();
@@ -831,33 +838,27 @@
 
     async applyScientificStyle() {
       if (!this.hasScientificSurfaceTensionTraces()) {
-        this.dom.scientificStyle.checked = false;
-        this.state.scientificStyleEnabled = false;
+        this.dom.scientificStyle.value = "raw";
+        this.state.plotStyle = "raw";
         this.setPublicationStatus("This figure has no eligible raw surface-tension traces.");
         return;
       }
-
-      const enabled = Boolean(this.dom.scientificStyle.checked);
-      this.state.data.forEach((trace) => {
-        if (this.charts.isScientificSurfaceTensionTrace(trace)) {
-          this.charts.applyScientificTraceStyle(trace, enabled);
-        }
-      });
-      this.state.scientificStyleEnabled = enabled;
+      const plotStyle = this.dom.scientificStyle.value;
+      this.pushStyleSnapshot("curve style");
+      this.state.plotStyle = plotStyle;
+      this.reapplyScientificStyleState();
       this.renderTraceControls();
       await this.render();
       this.syncEnabledState();
-      this.setPublicationStatus(
-        enabled
-          ? "Scientific style applied (edge-safe local fit; replicate SD when available)."
-          : "Point-to-point style restored for raw surface-tension traces."
-      );
+      this.setPublicationStatus(this.state.plotStyle === "band"
+        ? "Shaded bands: ±1 replicate SD when available; otherwise local residual SD (noise estimate, not a confidence interval)."
+        : this.state.plotStyle === "error-bars" ? "Smooth + Error Bars applied." : "Point-to-point style restored.");
     }
 
     reapplyScientificStyleState() {
-      this.state.data.forEach((trace) => {
+      this.state.data.forEach((trace, index) => {
         if (this.charts.isScientificSurfaceTensionTrace(trace)) {
-          this.charts.applyScientificTraceStyle(trace, this.state.scientificStyleEnabled);
+          this.charts.applyScientificTraceStyle(trace, this.state.plotStyle, undefined, undefined, undefined, undefined, index);
         }
       });
     }
@@ -1423,7 +1424,7 @@
       this.state.layout = deepCopy(snapshot.layout);
       this.state.exportSettings = deepCopy(snapshot.exportSettings);
       this.state.styleMeta = createStyleMeta(snapshot.styleMeta);
-      this.state.scientificStyleEnabled = Boolean(snapshot.scientificStyleEnabled);
+      this.state.plotStyle = this.charts.normalizePlotStyle(snapshot.plotStyle, snapshot.scientificStyleEnabled);
       this.state.timeUnitState = createTimeUnitState(
         snapshot.timeUnitState,
         getAxisTitle(this.state.layout.xaxis || {})
@@ -1633,7 +1634,7 @@
         }
         trace.line.color = input.value;
         update["line.color"] = input.value;
-        if (trace.error_y && this.state.scientificStyleEnabled && this.charts.isScientificSurfaceTensionTrace(trace)) {
+        if (trace.error_y && this.state.plotStyle === "error-bars" && this.charts.isScientificSurfaceTensionTrace(trace)) {
           trace.error_y.color = input.value;
           update["error_y.color"] = input.value;
         }
@@ -1658,13 +1659,16 @@
       }
 
       this.state.styleMeta.templateModified = Boolean(this.state.styleMeta.currentTemplate);
-      await Plotly.restyle(this.dom.canvas, update, [index]);
+      // Expanded band boundaries shift rendered trace indexes; render the logical
+      // curves together so color, visibility, and legend edits reach their bands.
+      if (this.state.plotStyle === "band") await this.render();
+      else await Plotly.restyle(this.dom.canvas, update, [index]);
       this.updateStyleFeedback();
       this.setPublicationStatus("Publication plot updated.");
     }
 
     async render() {
-      await Plotly.react(this.dom.canvas, this.state.data, this.state.layout, this.state.config);
+      await Plotly.react(this.dom.canvas, this.charts.expandBandTraces(this.state.data), this.state.layout, this.state.config);
     }
 
     async exportFigure(format) {
@@ -1685,7 +1689,7 @@
     async restoreSessionState(sessionState) {
       const warnings = [];
       const input = sessionState && typeof sessionState === "object" ? sessionState : {};
-      const data = Array.isArray(input.data) ? deepCopy(input.data) : [];
+      const data = Array.isArray(input.data) ? deepCopy(input.data).filter((trace) => !this.charts.isBandTrace(trace)) : [];
       const layout = input.layout && typeof input.layout === "object" ? deepCopy(input.layout) : {};
       const config = input.config && typeof input.config === "object"
         ? deepCopy(input.config)
@@ -1747,11 +1751,9 @@
         defaultLayout,
         defaultExportSettings,
         defaultTraceStyles,
-        scientificStyleEnabled: typeof input.scientificStyleEnabled === "boolean"
-          ? input.scientificStyleEnabled
-          : data.some((trace) => Boolean(
-              trace && trace.meta && trace.meta.surfaceLab && trace.meta.surfaceLab.scientificStyleEnabled
-            )),
+        plotStyle: this.charts.normalizePlotStyle(input.plotStyle, input.scientificStyleEnabled || data.some((trace) => Boolean(
+          trace && trace.meta && trace.meta.surfaceLab && trace.meta.surfaceLab.scientificStyleEnabled
+        ))),
         timeUnitState,
         panelAnnotation,
         styleMeta: createStyleMeta(input.styleMeta),

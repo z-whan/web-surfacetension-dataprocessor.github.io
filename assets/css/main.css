@@ -65,6 +65,84 @@ select {
   gap: 12px;
 }
 
+.runtime-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.plot-style-picker {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.plot-style-picker select {
+  max-width: 100%;
+  padding: 7px;
+}
+
+.settings-dialog {
+  width: min(620px, calc(100vw - 32px));
+}
+
+.clear-menu-wrapper {
+  position: relative;
+}
+
+.clear-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 5;
+  min-width: 180px;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid #bbb;
+  box-shadow: 0 4px 16px #0002;
+}
+
+.clear-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin: 3px 0;
+}
+
+.curve-order-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.curve-drag-handle {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  padding: 6px;
+  border: 0;
+  background: transparent;
+  font-size: 18px;
+}
+
+[data-compare-row-id].drag-over {
+  background: #eaf4fa;
+  outline: 2px solid #0072b2;
+  outline-offset: -2px;
+}
+
+[data-compare-row-id].dragging {
+  opacity: 0.5;
+}
+
+.publication-heading-general { color: #176b9b; }
+.publication-heading-axes { color: #237b65; }
+.publication-heading-panel { color: #9b6630; }
+.publication-heading-legend { color: #7855a0; }
+.publication-heading-traces { color: #ae466b; }
+
 .status-label {
   font-weight: 700;
 }

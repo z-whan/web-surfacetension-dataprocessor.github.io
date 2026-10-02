@@ -448,7 +448,7 @@
         qualityPayload: null,
         showRaw: true,
         showVolumeOverlay: false,
-        scientificStyle: false,
+        plotStyle: "raw",
         manualYRange: null,
       };
 
@@ -461,7 +461,7 @@
         plotAvgOnly: document.querySelector("#plot-avg-only"),
         plotAvgShowOriginal: document.querySelector("#plot-avg-show-original"),
         plotVolumeOverlay: document.querySelector("#plot-volume-overlay"),
-        plotScientificStyle: document.querySelector("#plot-scientific-style"),
+        plotScientificStyle: document.querySelector("#plot-line-style"),
         plotAnalyze: document.querySelector("#plot-run"),
         plotMarkCompare: document.querySelector("#plot-mark-compare"),
         plotExport: document.querySelector("#plot-export"),
@@ -514,7 +514,7 @@
       this.renderQualityDiagnostics(null);
       this.renderNoiseOutput(null);
       this.updateYSpanLabel();
-      this.syncAvgOverlayOption();
+      this.applySavedDefaults();
 
       this.dom.plotInput.addEventListener("change", () => this.handleFileSelection());
       this.dom.plotAvgOnly.addEventListener("change", () => this.handleAvgOnlyChange());
@@ -608,21 +608,34 @@
       };
     }
 
+    applySavedDefaults() {
+      const defaults = window.SurfaceLabSettings.get();
+      this.state.plotStyle = defaults.defaultPlotStyle;
+      this.dom.plotScientificStyle.value = this.state.plotStyle;
+      this.dom.plotAvgOnly.checked = defaults.avgOnly;
+      this.setOriginalSeriesVisible(!defaults.avgOnly || defaults.showOriginalWithAvg);
+      this.state.showVolumeOverlay = defaults.showVolumeOverlay;
+      this.dom.plotVolumeOverlay.checked = defaults.showVolumeOverlay;
+      this.dom.plotYSpan.value = String(defaults.ySpanPercent);
+      this.updateYSpanLabel();
+    }
+
     handleFileSelection() {
+      const file = this.dom.plotInput.files[0] || null;
+      const preserve = this.awaitingSessionFile || window.SurfaceLabSettings.get().newFileBehavior === "preserve";
+      this.awaitingSessionFile = false;
+      this.state.file = file;
+      if (!preserve) {
+        this.resetInputs();
+        return;
+      }
       this.clearError();
-      this.state.file = this.dom.plotInput.files[0] || null;
       this.state.rawPayload = null;
       this.state.trendPayload = null;
       this.state.trendRequest = null;
       this.state.noisePayload = null;
       this.state.qualityPayload = null;
-      this.state.showRaw = true;
-      this.state.showVolumeOverlay = false;
-      this.state.scientificStyle = Boolean(this.dom.plotScientificStyle.checked);
-      this.state.manualYRange = null;
-      this.setOriginalSeriesVisible(true);
-      this.dom.plotVolumeOverlay.checked = false;
-      this.dom.plotMeta.textContent = this.describeFile(this.state.file);
+      this.dom.plotMeta.textContent = this.describeFile(file);
       this.dom.plotExport.disabled = true;
       this.dom.plotExportSvg.disabled = true;
       this.dom.plotSendPublication.disabled = true;
@@ -631,6 +644,7 @@
       this.renderQualityDiagnostics(null);
       this.renderNoiseOutput(null);
       this.resetYRangeControls();
+      if (this.state.manualYRange) this.syncYRangeInputs(this.state.manualYRange);
       this.charts.clearPlot(this.dom.plotCanvas);
       this.charts.clearPlot(this.dom.noiseCanvas);
     }
@@ -646,7 +660,7 @@
       this.state.qualityPayload = null;
       this.state.showRaw = true;
       this.state.showVolumeOverlay = false;
-      this.state.scientificStyle = false;
+      this.state.plotStyle = "raw";
       this.state.manualYRange = null;
 
       this.dom.plotStart.value = "";
@@ -655,7 +669,7 @@
       this.dom.plotAvgOnly.checked = false;
       this.setOriginalSeriesVisible(true);
       this.dom.plotVolumeOverlay.checked = false;
-      this.dom.plotScientificStyle.checked = false;
+      this.dom.plotScientificStyle.value = "raw";
 
       const defaultTrendMethod = Object.keys(TREND_METHODS)[0];
       if (defaultTrendMethod) {
@@ -673,7 +687,7 @@
       if (this.dom.plotYSpan) {
         this.dom.plotYSpan.value = "100";
       }
-      this.updateYSpanLabel();
+      this.applySavedDefaults();
       this.resetYRangeControls();
 
       this.dom.plotMeta.textContent = this.describeFile(currentFile);
@@ -717,15 +731,13 @@
     }
 
     handleScientificStyleChange() {
-      this.state.scientificStyle = Boolean(this.dom.plotScientificStyle.checked);
-      if (this.state.rawPayload) {
-        this.renderCurrentPlot();
-        this.setStatus(
-          this.state.scientificStyle
-            ? "Scientific plot style enabled (edge-safe local fit; replicate SD when available)."
-            : "Point-to-point plot style restored."
-        );
-      }
+      this.state.plotStyle = this.dom.plotScientificStyle.value;
+      if (this.state.rawPayload) this.renderCurrentPlot();
+      this.setStatus(this.state.plotStyle === "band"
+        ? "Shaded band: ±1 replicate SD when available; otherwise local residual SD (noise estimate)."
+        : this.state.plotStyle === "error-bars"
+          ? "Smooth + Error Bars enabled (replicate SD when available)."
+          : "Point-to-point plot style restored.");
     }
 
     handleMarkForCompare() {
@@ -807,7 +819,7 @@
       if (!file) {
         return "No file selected yet.";
       }
-      return `${file.name} · ${(file.size / 1024).toFixed(1)} KB · ready for local analysis`;
+      return `${file.name} · ${(file.size / 1024).toFixed(1)} KB`;
     }
 
     currentSelectionArgs() {
@@ -962,7 +974,7 @@
 
       return this.charts.resolveTimeSeriesYRange(this.state.rawPayload, {
         trendPayload: this.state.trendPayload,
-        scientificStyle: this.state.scientificStyle,
+        plotStyle: this.state.plotStyle,
         ySpanPercent: this.currentYSpanPercent(),
       });
     }
@@ -1329,7 +1341,7 @@
         trendPayload: this.state.trendPayload,
         showRaw: this.state.showRaw,
         showVolumeOverlay: this.state.showVolumeOverlay,
-        scientificStyle: this.state.scientificStyle,
+        plotStyle: this.state.plotStyle,
         ySpanPercent: this.currentYSpanPercent(),
         // The slider remains an automatic span tool. Manual input boxes can
         // override the plotted range without forcing the slider to re-sync.
@@ -1418,7 +1430,8 @@
           parameters: noiseDefinition ? collectParameters(this.dom.noiseParams, noiseDefinition) : {},
         },
         plotStyle: {
-          scientificStyle: Boolean(this.state.scientificStyle),
+          mode: this.state.plotStyle,
+          scientificStyle: this.state.plotStyle !== "raw",
         },
         yAxis: {
           spanPercent: this.currentYSpanPercent(),
@@ -1438,6 +1451,7 @@
       const yAxis = isPlainObject(input.yAxis) ? input.yAxis : {};
       const plotStyle = isPlainObject(input.plotStyle) ? input.plotStyle : {};
 
+      this.awaitingSessionFile = true;
       this.state.file = null;
       this.state.rawPayload = null;
       this.state.trendPayload = null;
@@ -1445,7 +1459,7 @@
       this.state.noisePayload = null;
       this.state.qualityPayload = null;
       this.state.showRaw = typeof trend.showRaw === "boolean" ? trend.showRaw : true;
-      this.state.scientificStyle = Boolean(plotStyle.scientificStyle);
+      this.state.plotStyle = this.charts.normalizePlotStyle(plotStyle.mode, plotStyle.scientificStyle);
       this.state.manualYRange = Array.isArray(yAxis.manualRange)
         ? yAxis.manualRange.map((value) => Number(value)).filter((value) => Number.isFinite(value)).slice(0, 2)
         : null;
@@ -1459,7 +1473,7 @@
       this.dom.plotExpRange.value = typeof selection.expRangeText === "string" ? selection.expRangeText : "";
       this.dom.plotAvgOnly.checked = Boolean(selection.avgOnly);
       this.dom.plotAvgShowOriginal.checked = Boolean(selection.showOriginalWithAvg);
-      this.dom.plotScientificStyle.checked = this.state.scientificStyle;
+      this.dom.plotScientificStyle.value = this.state.plotStyle;
       this.syncAvgOverlayOption();
 
       if (typeof trend.methodKey === "string" && TREND_METHODS[trend.methodKey]) {

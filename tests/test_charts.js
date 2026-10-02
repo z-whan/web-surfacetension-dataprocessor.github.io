@@ -307,6 +307,50 @@ assert.strictEqual(replicateUncertainty.errorKind, "replicate-sd");
   assert.strictEqual(captured.data[3].name, "CMC");
   assert.strictEqual(captured.layout.shapes.length, 1);
 
+  // Continuous bands use every SD value, while bars stay thinned for clarity.
+  const values = Array.from({ length: 101 }, (_, index) => 70 - index * 0.02);
+  const deviations = values.map((_, index) => index === 47 ? 4 : 0.2);
+  const originalValues = values.slice();
+  await charts.renderComparePlot({}, [{
+    displayIndex: 2, displayLabel: "replicates", dataType: "raw",
+    x: values.map((_, index) => index * 1000), y: values,
+    error: deviations, errorKind: "replicate-sd",
+  }], { plotStyle: "band" });
+  assert.strictEqual(captured.data.length, 3);
+  const [lower, upper, mean] = captured.data;
+  assert.strictEqual(lower.showlegend, false);
+  assert.strictEqual(upper.fill, "tonexty");
+  assert(upper.fillcolor.endsWith(",0.14)"));
+  assert.strictEqual(mean.error_y, undefined);
+  assert.strictEqual(mean.line.dash, "dash");
+  assert.strictEqual(mean.line.color, charts.SERIES_PALETTE[1], "curve identity survives reordering");
+  assert.strictEqual(mean.meta.surfaceLab.plotStyle, "band");
+  assert.strictEqual(upper.y[47] - mean.y[47], 4, "band SD must not be thinned");
+  assert(captured.layout.yaxis.range[1] >= upper.y[47], "automatic range must include all band bounds");
+  assert.deepStrictEqual(values, originalValues, "styling must not change measured data");
+  assert.deepStrictEqual(charts.expandBandTraces(captured.data).length, 3, "expansion must be idempotent");
+  mean.visible = false;
+  mean.line.color = "#ff0000";
+  const recolored = charts.expandBandTraces([mean]);
+  assert.strictEqual(recolored[1].fillcolor, "rgba(255,0,0,0.14)");
+  assert.strictEqual(recolored[0].visible, false);
+  charts.applyScientificTraceStyle(mean, "raw");
+  assert.deepStrictEqual(mean.y, originalValues);
+  assert.strictEqual(mean.line.dash, "solid");
+  assert.strictEqual(charts.expandBandTraces([mean]).length, 1);
+
+  const missing = charts.applyScientificTraceStyle({
+    x: [0, 1, 2, 3, 4], y: [70, 69, null, 68, 67], line: { color: "#0072B2" },
+  }, "band", undefined, undefined, [0.2, null, 0.2, 0.3, 0.2]);
+  const missingBand = charts.expandBandTraces([missing]);
+  assert.strictEqual(missingBand[1].y[1], null, "missing SD must stay missing");
+  assert.strictEqual(missingBand[1].y[2], null, "missing observations must not be filled by smoothing");
+  const single = charts.applyScientificTraceStyle({
+    x: [0, 1, 2, 3, 4], y: [70, 72, 69, 71, 70], line: {},
+  }, "band");
+  assert.strictEqual(single.meta.surfaceLab.errorKind, "local-residual-sd");
+  assert.strictEqual(charts.expandBandTraces([single])[0].y[0], null, "no fabricated endpoint uncertainty");
+
   console.log("charts tests passed");
 })().catch((error) => {
   console.error(error);

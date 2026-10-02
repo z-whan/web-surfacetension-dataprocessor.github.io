@@ -21,6 +21,11 @@ Shared browser namespaces are attached to `window`, including:
 `assets/js/app.js` wires the tabs, global status/error UI, CMC workflow, and the
 controller instances together.
 
+`assets/js/settings.js` validates and stores versioned browser preferences in
+local storage. It catches unavailable/corrupt storage so preferences cannot block
+startup. Time Series and Compare initialize from these defaults; new-file handling
+either retains controls or resets to the saved defaults, always clearing results.
+
 ## Frontend Controllers
 
 The Time Series, Compare, and Publication Plot tabs each have a controller
@@ -36,6 +41,20 @@ small: it should reduce repetitive DOM code without becoming a framework.
 traces and layouts for time-series plots, noise/analysis plots, compare plots,
 CMC plots, and image export. Controllers pass already-shaped payloads into this
 layer.
+
+Raw surface-tension traces retain original x/y/error arrays in `meta.surfaceLab`.
+The three curve modes are `raw`, `error-bars`, and `band`; legacy boolean scientific
+styles still import as `error-bars`. Band rendering expands a logical curve into
+two hidden-legend boundary traces plus the main line. Boundary traces are tagged,
+removed when copying to Publication Plot, and regenerated when rendering there.
+Editors and session sources retain only logical curves. Band bounds use full
+pointwise SD arrays, rather than the thinned error-bar array; missing observations
+or SD values remain gaps. Unit conversion rescales original time coordinates too.
+
+Compare keeps curve identity separate from row position. Pointer-based handle
+dragging and up/down controls reorder its state array and redraw the legend without
+changing labels, selection IDs, or identity-based colors/dashes. Clear operations
+are explicit menu actions, not the opening click.
 
 ## CMC Analysis
 

@@ -8,6 +8,7 @@ assert(manager, "SurfaceLabSessionManager should attach to globalThis");
 
 const session = manager.createSession({
   timeSeries: {
+    plotStyle: { mode: "band" },
     file: { name: "sample.csv", size: 42, type: "text/csv", lastModified: 123 },
     selection: {
       startText: "2",
@@ -34,6 +35,7 @@ const session = manager.createSession({
     },
   },
   compare: {
+    plotStyle: { scientificStyle: true },
     curves: [
       {
         sourceFileName: "sample.csv",
@@ -67,6 +69,8 @@ assert.strictEqual(session.schema, "surface-lab-session");
 assert.strictEqual(session.schemaVersion, 1);
 assert.strictEqual(session.cmc, undefined);
 assert.strictEqual(session.timeSeries.selection.expRangeText, "1-2");
+assert.strictEqual(session.timeSeries.plotStyle.mode, "band");
+assert.strictEqual(session.compare.plotStyle.mode, "error-bars", "old scientific sessions stay compatible");
 assert.strictEqual(session.compare.curves.length, 1);
 assert.strictEqual(session.publication.layout.title.text, "Figure");
 assert.strictEqual(session.publication.scientificStyleEnabled, true);

@@ -1135,6 +1135,7 @@
   }
 
   async function boot() {
+    window.SurfaceLabSettings.bind();
     bindTabs();
     initializePublicationModule();
     bindActions();

@@ -65,7 +65,7 @@ controller.renderTraceControls = () => {};
 let rendered;
 controller.render = async () => { rendered = charts.expandBandTraces(controller.state.data); };
 const sample = charts.applyScientificTraceStyle({ x: [0, 1000, 2000, 3000, 4000],
-  y: [70, 72, 69, 71, 70], line: { color: "#0072B2" } }, "band");
+  y: [70, 72, 69, 71, 70], line: { color: "#0072B2", dash: "dashdot" } }, "band");
 controller.state.data = [sample];
 controller.state.plotStyle = "band";
 (async () => {
@@ -74,6 +74,7 @@ controller.state.plotStyle = "band";
   assert.strictEqual(controller.state.plotStyle, "error-bars", "snapshot sync must not overwrite requested style");
   assert.strictEqual(rendered.length, 1);
   assert.strictEqual(rendered[0].error_y.visible, true);
+  assert.strictEqual(rendered[0].line.dash, "dashdot");
   controller.dom.scientificStyle.value = "raw";
   await controller.applyScientificStyle();
   assert.deepStrictEqual(rendered[0].y, [70, 72, 69, 71, 70]);
@@ -82,5 +83,6 @@ controller.state.plotStyle = "band";
   assert.strictEqual(rendered.length, 3);
   assert.strictEqual(controller.getSessionState().data.length, 1, "editor and session contain logical curves only");
   assert.strictEqual(controller.state.plotStyle, "band");
+  assert.strictEqual(controller.state.data[0].line.dash, "dashdot", "Publication Plot must preserve manual dash styling");
   console.log("publication plot tests passed");
 })().catch((error) => { console.error(error); process.exit(1); });

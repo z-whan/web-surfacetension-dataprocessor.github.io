@@ -40,7 +40,9 @@ the current session and are not uploaded to a project backend.
   use an edge-safe local-linear fit. Bands show every available pointwise ±1 SD;
   bars are thinned for readability. Averaged replicates use replicate sample SD;
   single traces use local residual SD as a noise estimate, not a confidence
-  interval. Volume and derived traces are unchanged.
+  interval. Switching curve style preserves the current line dash; raw curves
+  default to solid lines. Customize dashes explicitly in Publication Plot → Traces.
+  Volume and derived traces are unchanged.
 - Save browser preferences through `Settings` beside Runtime, including default
   curve style, average/volume options, Y-axis span, and publication time units.
 - Style plots for papers, posters, and presentations without changing the

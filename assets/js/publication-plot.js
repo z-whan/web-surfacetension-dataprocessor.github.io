@@ -856,9 +856,9 @@
     }
 
     reapplyScientificStyleState() {
-      this.state.data.forEach((trace, index) => {
+      this.state.data.forEach((trace) => {
         if (this.charts.isScientificSurfaceTensionTrace(trace)) {
-          this.charts.applyScientificTraceStyle(trace, this.state.plotStyle, undefined, undefined, undefined, undefined, index);
+          this.charts.applyScientificTraceStyle(trace, this.state.plotStyle);
         }
       });
     }

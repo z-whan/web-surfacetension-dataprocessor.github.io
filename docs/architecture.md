@@ -53,7 +53,8 @@ or SD values remain gaps. Unit conversion rescales original time coordinates too
 
 Compare keeps curve identity separate from row position. Pointer-based handle
 dragging and up/down controls reorder its state array and redraw the legend without
-changing labels, selection IDs, or identity-based colors/dashes. Clear operations
+changing labels, selection IDs, or identity-based colors. Curve-mode changes
+preserve line dashes; shaded bands do not assign an automatic dash cycle. Clear operations
 are explicit menu actions, not the opening click.
 
 ## CMC Analysis

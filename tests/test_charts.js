@@ -322,7 +322,7 @@ assert.strictEqual(replicateUncertainty.errorKind, "replicate-sd");
   assert.strictEqual(upper.fill, "tonexty");
   assert(upper.fillcolor.endsWith(",0.14)"));
   assert.strictEqual(mean.error_y, undefined);
-  assert.strictEqual(mean.line.dash, "dash");
+  assert.strictEqual(mean.line.dash, "solid", "shaded bands must not assign a dash by curve index");
   assert.strictEqual(mean.line.color, charts.SERIES_PALETTE[1], "curve identity survives reordering");
   assert.strictEqual(mean.meta.surfaceLab.plotStyle, "band");
   assert.strictEqual(upper.y[47] - mean.y[47], 4, "band SD must not be thinned");
@@ -338,6 +338,22 @@ assert.strictEqual(replicateUncertainty.errorKind, "replicate-sd");
   assert.deepStrictEqual(mean.y, originalValues);
   assert.strictEqual(mean.line.dash, "solid");
   assert.strictEqual(charts.expandBandTraces([mean]).length, 1);
+
+  for (const dash of [undefined, "solid", "dash", "dot", "dashdot"]) {
+    const custom = { x: [0, 1, 2], y: [70, 69, 68], line: { dash } };
+    for (const style of ["band", "error-bars", "raw", "band"]) {
+      charts.applyScientificTraceStyle(custom, style);
+      assert.strictEqual(custom.line.dash, dash, "curve style changes must preserve the user's line dash");
+    }
+    custom.line.dash = "dot";
+    charts.applyScientificTraceStyle(custom, "raw");
+    assert.strictEqual(custom.line.dash, "dot", "a dash edited in band mode must survive switching away");
+  }
+  await charts.renderComparePlot({}, [1, 2, 3, 4, 5].map((displayIndex) => ({
+    displayIndex, dataType: "raw", x: [0, 1, 2], y: [70, 69, 68],
+  })), { plotStyle: "band" });
+  assert(captured.data.filter(charts.isScientificSurfaceTensionTrace).every((trace) => trace.line.dash === "solid"),
+    "all raw compare curves should default to solid lines, including after palette wraparound");
 
   const missing = charts.applyScientificTraceStyle({
     x: [0, 1, 2, 3, 4], y: [70, 69, null, 68, 67], line: { color: "#0072B2" },

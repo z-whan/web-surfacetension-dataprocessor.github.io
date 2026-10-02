@@ -242,8 +242,7 @@
     originalY,
     originalX,
     suppliedErrors,
-    suppliedErrorKind,
-    styleIndex
+    suppliedErrorKind
   ) {
     if (!trace || typeof trace !== "object") {
       return trace;
@@ -255,7 +254,6 @@
       ? existingMeta.surfaceLab
       : {};
     const plotStyle = normalizePlotStyle(enabled);
-    const previousStyle = existingSurfaceLab.plotStyle;
     const rawY = Array.isArray(existingSurfaceLab.originalY)
       ? existingSurfaceLab.originalY.slice()
       : (Array.isArray(originalY) ? originalY.slice() : Array.isArray(trace.y) ? trace.y.slice() : []);
@@ -287,9 +285,6 @@
         originalErrorY,
         baseLineShape,
         baseLineSmoothing,
-        baseLineDash: Object.prototype.hasOwnProperty.call(existingSurfaceLab, "baseLineDash")
-          ? existingSurfaceLab.baseLineDash : (trace.line && trace.line.dash) || "solid",
-        styleIndex: Number.isInteger(styleIndex) ? styleIndex : existingSurfaceLab.styleIndex || 0,
         scientificStyleEnabled: plotStyle !== "raw",
         plotStyle,
       },
@@ -312,9 +307,6 @@
       trace.meta.surfaceLab.errorKind = scientific.errorKind;
       if (plotStyle === "band") {
         delete trace.error_y;
-        if (previousStyle !== "band") {
-          trace.line.dash = ["solid", "dash", "dashdot", "dot"][trace.meta.surfaceLab.styleIndex % 4];
-        }
       }
     } else {
       trace.y = rawY;
@@ -333,9 +325,6 @@
       } else {
         delete trace.error_y;
       }
-    }
-    if (previousStyle === "band" && plotStyle !== "band") {
-      trace.line.dash = trace.meta.surfaceLab.baseLineDash;
     }
     return trace;
   }
@@ -569,8 +558,7 @@
         series.y,
         series.x,
         series.error,
-        series.errorKind,
-        index
+        series.errorKind
       );
       if (trendPayload) {
         trace.line.width = 1.4;
@@ -672,8 +660,7 @@
           curve.y,
           curve.x,
           curve.error,
-          curve.errorKind,
-          colorIndex
+          curve.errorKind
         );
       }
       return trace;

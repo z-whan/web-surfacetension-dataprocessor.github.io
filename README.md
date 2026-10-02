@@ -144,6 +144,27 @@ Analysis results always clear for a new file. `Reset Inputs` restores saved
 defaults while keeping the selected file. Session import keeps its restored
 controls for the first source-file reselection even in reset mode.
 
+After choosing a Time Series file, `Suggest` below Experiment Range gives a
+copyable range without changing the input. `Check` opens a per-experiment review
+of the full raw file, including incomplete curves and unused FAMAS slots. Default
+screening requires at least 95% valid data, 90% of the longest curve's duration,
+10 valid points, a valid start, and ordered timestamps without gaps exceeding
+three times the median sampling interval. Local linear residuals remove the
+signal's slope; normalised MAD estimates robust noise (limit 0.5 mN/m), with a
+95th-percentile residual limit of three times that threshold. Abrupt changes
+followed by a reversal are excluded if both jumps exceed six times the noise
+threshold, catching rare spikes that MAD can miss. Completeness,
+duration and noise thresholds can be changed and saved in Settings; saving
+rechecks the selected file. These are configurable screening heuristics.
+
+Evaporation must be at most 5%/10min. It is calculated as
+`max(0, (Vstart - Vend) / Vstart) * 100 * 600 / elapsed_seconds`, using positive
+volume values and explicit time units. FAMAS detail volumes take priority over
+the rounded worksheet. Short recordings are labelled as normalised estimates;
+they are not observed 10-minute losses. Missing/partial volume, unknown time
+units or volume increasing by more than 1% require review and are not silently
+accepted. Check shows the observed loss and volume-recording duration separately.
+
 Defaults apply on opening, on `Reset Inputs`, or when selecting a new file in
 reset mode. Publication Plot inherits the incoming curve style; its saved seconds
 preference converts newly copied millisecond figures automatically.

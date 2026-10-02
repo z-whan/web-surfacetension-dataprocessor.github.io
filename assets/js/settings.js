@@ -8,11 +8,18 @@
     showVolumeOverlay: false,
     ySpanPercent: 100,
     publicationTimeSeconds: false,
+    suggestValidPercent: 95,
+    suggestDurationPercent: 90,
+    suggestNoiseThreshold: 0.5,
   });
 
   function sanitize(input) {
     const value = input && typeof input === "object" ? input : {};
     const span = Number(value.ySpanPercent);
+    const bounded = (key, fallback, min, max) => {
+      const number = Number(value[key]);
+      return Number.isFinite(number) && number >= min && number <= max ? number : fallback;
+    };
     return {
       newFileBehavior: value.newFileBehavior === "reset" ? "reset" : "preserve",
       defaultPlotStyle: ["raw", "error-bars", "band"].includes(value.defaultPlotStyle)
@@ -22,6 +29,9 @@
       showVolumeOverlay: value.showVolumeOverlay === true,
       ySpanPercent: Number.isFinite(span) && span >= 40 && span <= 400 ? span : 100,
       publicationTimeSeconds: value.publicationTimeSeconds === true,
+      suggestValidPercent: bounded("suggestValidPercent", 95, 50, 100),
+      suggestDurationPercent: bounded("suggestDurationPercent", 90, 50, 100),
+      suggestNoiseThreshold: bounded("suggestNoiseThreshold", 0.5, 0.01, 10),
     };
   }
 
@@ -71,6 +81,7 @@
         [key, field.type === "checkbox" ? field.checked : field.value]
       ));
       const persisted = save(input);
+      window.dispatchEvent(new CustomEvent("surface-lab-settings-changed"));
       feedback.textContent = persisted
         ? "Saved on this browser. Defaults apply on reopening, Reset Inputs, or a new file in reset mode."
         : "Applied for this visit. Browser storage is unavailable, so these settings cannot survive reopening.";

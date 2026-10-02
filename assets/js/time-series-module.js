@@ -438,6 +438,7 @@
       this.normalizeUiError = options.normalizeUiError;
       this.onMarkForCompare = options.onMarkForCompare;
       this.onSendToPublication = options.onSendToPublication;
+      this.suggestionRequest = 0;
 
       this.state = {
         file: null,
@@ -446,6 +447,9 @@
         trendRequest: null,
         noisePayload: null,
         qualityPayload: null,
+        suggestionPayload: null,
+        suggestionStatus: "idle",
+        suggestionError: "",
         showRaw: true,
         showVolumeOverlay: false,
         plotStyle: "raw",
@@ -454,7 +458,12 @@
 
       this.dom = {
         plotInput: document.querySelector("#plot-file"),
-        plotMeta: document.querySelector("[data-plot-meta]"),
+        suggest: document.querySelector("#plot-suggest"),
+        suggestRange: document.querySelector("#plot-suggest-range"),
+        suggestCheck: document.querySelector("#plot-suggest-check"),
+        suggestDialog: document.querySelector("#plot-suggest-dialog"),
+        suggestDetails: document.querySelector("#plot-suggest-details"),
+        suggestClose: document.querySelector("#plot-suggest-close"),
         plotStart: document.querySelector("#plot-start"),
         plotEnd: document.querySelector("#plot-end"),
         plotExpRange: document.querySelector("#plot-exp-range"),
@@ -517,6 +526,14 @@
       this.applySavedDefaults();
 
       this.dom.plotInput.addEventListener("change", () => this.handleFileSelection());
+      this.dom.suggestCheck.addEventListener("click", () => {
+        this.renderSuggestion();
+        this.dom.suggestDialog.showModal();
+      });
+      this.dom.suggestClose.addEventListener("click", () => this.dom.suggestDialog.close());
+      window.addEventListener("surface-lab-settings-changed", () => {
+        if (this.state.file) this.refreshSuggestion();
+      });
       this.dom.plotAvgOnly.addEventListener("change", () => this.handleAvgOnlyChange());
       this.dom.plotAvgShowOriginal.addEventListener("change", () => this.handleOriginalSeriesChange());
       this.dom.plotVolumeOverlay.addEventListener("change", () => this.handleVolumeOverlayChange());
@@ -625,6 +642,8 @@
       const preserve = this.awaitingSessionFile || window.SurfaceLabSettings.get().newFileBehavior === "preserve";
       this.awaitingSessionFile = false;
       this.state.file = file;
+      if (this.dom.suggestDialog.open) this.dom.suggestDialog.close();
+      this.refreshSuggestion();
       if (!preserve) {
         this.resetInputs();
         return;
@@ -635,7 +654,6 @@
       this.state.trendRequest = null;
       this.state.noisePayload = null;
       this.state.qualityPayload = null;
-      this.dom.plotMeta.textContent = this.describeFile(file);
       this.dom.plotExport.disabled = true;
       this.dom.plotExportSvg.disabled = true;
       this.dom.plotSendPublication.disabled = true;
@@ -690,7 +708,6 @@
       this.applySavedDefaults();
       this.resetYRangeControls();
 
-      this.dom.plotMeta.textContent = this.describeFile(currentFile);
       this.dom.plotExport.disabled = true;
       this.dom.plotExportSvg.disabled = true;
       this.dom.plotSendPublication.disabled = true;
@@ -815,11 +832,76 @@
       await this.renderCurrentPlot();
     }
 
-    describeFile(file) {
-      if (!file) {
-        return "No file selected yet.";
+    onRuntimeReady() {
+      if (this.state.file && this.state.suggestionStatus === "waiting") this.refreshSuggestion();
+    }
+
+    async refreshSuggestion() {
+      const request = ++this.suggestionRequest;
+      const file = this.state.file;
+      this.state.suggestionPayload = null;
+      this.state.suggestionError = "";
+      this.state.suggestionStatus = !file ? "idle" : this.isRuntimeReady() ? "loading" : "waiting";
+      this.renderSuggestion();
+      if (!file || !this.isRuntimeReady()) return;
+      let staged = null;
+      try {
+        await this.ensureFileDependencies(file, true);
+        if (request !== this.suggestionRequest) return;
+        staged = await this.pyodideClient.stageBrowserFile(file, "plot-suggest");
+        if (request !== this.suggestionRequest) return;
+        const defaults = window.SurfaceLabSettings.get();
+        const payload = await this.pyodideClient.callBridge("suggest_plot_experiments", staged.fsPath, {
+          validPercent: defaults.suggestValidPercent,
+          durationPercent: defaults.suggestDurationPercent,
+          noiseThreshold: defaults.suggestNoiseThreshold,
+        });
+        if (request !== this.suggestionRequest) return;
+        this.state.suggestionPayload = payload;
+        this.state.suggestionStatus = "ready";
+      } catch (error) {
+        if (request !== this.suggestionRequest) return;
+        this.state.suggestionStatus = "error";
+        this.state.suggestionError = this.normalizeUiError(error);
+      } finally {
+        if (staged) this.pyodideClient.removeFsFile(staged.fsPath);
+        if (request === this.suggestionRequest) this.renderSuggestion();
       }
-      return `${file.name} · ${(file.size / 1024).toFixed(1)} KB`;
+    }
+
+    renderSuggestion() {
+      const payload = this.state.suggestionPayload;
+      const status = this.state.suggestionStatus;
+      this.dom.suggest.hidden = !this.state.file;
+      this.dom.suggestRange.textContent = payload ? payload.recommendedRange || "—" : ["waiting", "loading"].includes(status) ? "…" : "—";
+      const children = [];
+      const paragraph = (text, className) => domUtils.el("p", { text, className });
+      if (!payload) {
+        children.push(paragraph(status === "error" ? this.state.suggestionError : status === "waiting"
+          ? "Waiting for Runtime to become Ready. Screening will start automatically."
+          : status === "loading" ? "Checking all experiments in the selected file…" : "Select a data file to check experiments."));
+      } else {
+        const rules = payload.rules;
+        children.push(paragraph(this.state.file.name));
+        children.push(paragraph(`Suggested range: ${payload.recommendedRange || "None — see the reasons below."}`));
+        children.push(paragraph(`Raw full-file screening: valid data ≥${rules.validPercent}%; duration ≥${rules.durationPercent}% of the longest curve; at least 10 valid points and a valid start; no duplicate/reversed times or gaps >3× the median interval. Robust local noise ≤${rules.noiseThreshold} mN/m and 95th-percentile residual ≤${(3 * rules.noiseThreshold).toFixed(2)} mN/m. Evaporation ≤5%/10min. Change completeness and noise rules in Settings.`, "suggest-rules"));
+        children.push(paragraph("Noise uses local linear residuals (MAD), so a smooth downward trend is not counted as noise. Evaporation = max(0, (start volume − end volume) / start volume) × 100 × 600 / measured seconds. Missing volume or unknown time units require review. Suggestions do not change your selected range.", "suggest-rules"));
+        children.push(paragraph(`Abrupt spikes are also excluded when a change and immediate reversal both exceed ${(6 * rules.noiseThreshold).toFixed(2)} mN/m. This checks rare spikes that MAD can miss.`, "suggest-rules"));
+        const number = (value, digits = 2) => Number.isFinite(value) ? value.toFixed(digits) : "N/A";
+        const labels = { suggest: "Suggested", exclude: "Excluded", review: "Needs review" };
+        payload.experiments.forEach((row) => {
+          const evap = Number.isFinite(row.evaporationPctPer10Min)
+            ? `${number(row.evaporationPctPer10Min)}%/10min${row.volumeDurationSeconds < 600 ? " (normalised from <10min)" : " (normalised)"}` : "N/A — cannot assess";
+          children.push(domUtils.el("section", { className: "suggest-result", attrs: { "data-status": row.status } }, [
+            domUtils.el("h4", { text: `Exp ${row.experimentIndex} · ${labels[row.status]}` }),
+            paragraph(`10min evaporation: ${evap}`),
+            paragraph(`Valid data: ${row.validPoints}/${row.totalPoints} (${number(row.validPercent, 1)}%); duration: ${number(row.durationSeconds, 1)} s (${number(row.durationCoveragePercent, 1)}% coverage); robust noise: ${number(row.noiseSigma, 3)} mN/m; residual P95: ${number(row.residualP95, 3)} mN/m.`),
+            paragraph(`Volume: ${row.volumePoints} valid points; ${row.volumeSource === "detail" ? "FAMAS detail (higher precision)" : row.volumeSource === "worksheet" ? "worksheet" : "unavailable"}; measured loss: ${number(row.volumeLossPercent)}% over ${number(row.volumeDurationSeconds, 1)} s.`),
+            domUtils.el("ul", {}, row.reasons.map((reason) => domUtils.el("li", { text: reason }))),
+          ]));
+        });
+      }
+      domUtils.replaceChildren(this.dom.suggestDetails, children);
     }
 
     currentSelectionArgs() {
@@ -1008,13 +1090,13 @@
       this.syncYRangeInputs(null);
     }
 
-    async ensureFileDependencies() {
-      const lowerName = this.state.file.name.toLowerCase();
+    async ensureFileDependencies(file = this.state.file, quiet = false) {
+      const lowerName = file.name.toLowerCase();
       if (lowerName.endsWith(".xlsx")) {
-        this.setStatus("Preparing XLSX reading support...");
+        if (!quiet) this.setStatus("Preparing XLSX reading support...");
         await this.pyodideClient.ensureOptionalPackages(this.config.OPTIONAL_PYTHON_PACKAGES.xlsx);
       } else if (lowerName.endsWith(".xls")) {
-        this.setStatus("Preparing XLS reading support...");
+        if (!quiet) this.setStatus("Preparing XLS reading support...");
         await this.pyodideClient.ensureOptionalPackages(this.config.OPTIONAL_PYTHON_PACKAGES.xls);
       }
     }
@@ -1453,6 +1535,12 @@
 
       this.awaitingSessionFile = true;
       this.state.file = null;
+      ++this.suggestionRequest;
+      this.state.suggestionPayload = null;
+      this.state.suggestionStatus = "idle";
+      this.state.suggestionError = "";
+      if (this.dom.suggestDialog.open) this.dom.suggestDialog.close();
+      this.renderSuggestion();
       this.state.rawPayload = null;
       this.state.trendPayload = null;
       this.state.trendRequest = null;
@@ -1502,9 +1590,6 @@
         this.syncYRangeInputs(this.state.manualYRange);
       }
 
-      this.dom.plotMeta.textContent = input.file && input.file.name
-        ? `Session restored settings for ${input.file.name}. Select the data file again to rerun analysis.`
-        : "Session restored settings. Select a data file to rerun analysis.";
       this.dom.plotExport.disabled = true;
       this.dom.plotExportSvg.disabled = true;
       this.dom.plotSendPublication.disabled = true;

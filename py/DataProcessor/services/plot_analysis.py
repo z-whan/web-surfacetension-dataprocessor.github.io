@@ -176,6 +176,11 @@ def detect_non_empty_experiments(df: pd.DataFrame, ordered_it_cols: Sequence[obj
     for idx, col in enumerate(ordered_it_cols, start=1):
         if col not in df.columns:
             continue
+        if "famasValidExperimentIndexes" in df.attrs:
+            match = _IT_PATTERN.match(str(col))
+            experiment_id = int(match.group(1)) if match and match.group(1) else idx
+            if experiment_id not in df.attrs["famasValidExperimentIndexes"]:
+                continue
         if first_data_cell_has_value(df[col].iloc[0]):
             detected.append(idx)
     return detected

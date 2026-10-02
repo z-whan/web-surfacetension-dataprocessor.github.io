@@ -129,6 +129,7 @@ def _famas_measurement_rows(
     *,
     time_idx: int | None = None,
     max_col: int | None = None,
+    keep_missing_time: bool = False,
 ) -> list[list[str]]:
     if time_idx is None:
         header = rows[header_idx]
@@ -139,11 +140,15 @@ def _famas_measurement_rows(
 
     data_rows: list[list[str]] = []
     for row in rows[header_idx + 1 :]:
-        if len(row) <= time_idx:
+        section = str(row[0]).strip() if row else ""
+        if section.startswith("[") and section.endswith("]"):
             break
-        t_val = row[time_idx]
+        if len(row) <= time_idx:
+            if not keep_missing_time:
+                break
+        t_val = row[time_idx] if len(row) > time_idx else ""
         t_text = str(t_val).strip() if t_val is not None else ""
-        if not t_text or (t_text.startswith("[") and t_text.endswith("]")):
+        if (not t_text and not keep_missing_time) or (t_text.startswith("[") and t_text.endswith("]")):
             break
         data_rows.append(row[: max_col + 1] if max_col is not None else row)
     return data_rows
@@ -181,7 +186,7 @@ def _surface_tension_values_are_valid(values: list[object]) -> bool:
     return len(plausible) >= min_required
 
 
-def _valid_famas_experiment_indexes(rows: list[list[str]], header_idx: int) -> set[int]:
+def _valid_famas_experiment_indexes(rows: list[list[str]], header_idx: int, *, keep_missing_time: bool = False) -> set[int]:
     experiment_cols = _famas_experiment_columns(rows, header_idx)
     if not experiment_cols:
         return set()
@@ -194,7 +199,7 @@ def _valid_famas_experiment_indexes(rows: list[list[str]], header_idx: int) -> s
         return set()
 
     max_col = max([time_idx] + [col_idx for _, col_idx in experiment_cols])
-    data_rows = _famas_measurement_rows(rows, header_idx, time_idx=time_idx, max_col=max_col)
+    data_rows = _famas_measurement_rows(rows, header_idx, time_idx=time_idx, max_col=max_col, keep_missing_time=keep_missing_time)
     valid: set[int] = set()
     for exp_num, col_idx in experiment_cols:
         values = [row[col_idx] if col_idx < len(row) else "" for row in data_rows]
@@ -390,7 +395,7 @@ def parse_famas_metadata(csv_path: str) -> dict[str, object]:
     return metadata
 
 
-def try_parse_famas_multi_experiment_csv(csv_path: str) -> pd.DataFrame | None:
+def try_parse_famas_multi_experiment_csv(csv_path: str, *, preserve_experiment_slots: bool = False) -> pd.DataFrame | None:
     """Normalize two-row-header FAMAS exports to plot-friendly columns."""
     rows = _csv_rows_from_famas_file(csv_path)
     if rows is None:
@@ -433,8 +438,8 @@ def try_parse_famas_multi_experiment_csv(csv_path: str) -> pd.DataFrame | None:
     if not experiment_cols:
         return None
 
-    valid_experiment_indexes = _valid_famas_experiment_indexes(rows, header_idx)
-    if valid_experiment_indexes:
+    valid_experiment_indexes = _valid_famas_experiment_indexes(rows, header_idx, keep_missing_time=preserve_experiment_slots)
+    if valid_experiment_indexes and not preserve_experiment_slots:
         experiment_cols = [
             (exp_num, col_idx)
             for exp_num, col_idx in experiment_cols
@@ -442,7 +447,7 @@ def try_parse_famas_multi_experiment_csv(csv_path: str) -> pd.DataFrame | None:
         ]
 
     experiment_cols.sort(key=lambda item: item[0])
-    if valid_experiment_indexes:
+    if valid_experiment_indexes and not preserve_experiment_slots:
         volume_cols = [
             (exp_num, col_idx)
             for exp_num, col_idx in volume_cols
@@ -461,6 +466,7 @@ def try_parse_famas_multi_experiment_csv(csv_path: str) -> pd.DataFrame | None:
         header_idx,
         time_idx=time_idx,
         max_col=max_col,
+        keep_missing_time=preserve_experiment_slots,
     )
 
     if not data_rows:
@@ -489,10 +495,11 @@ def try_parse_famas_multi_experiment_csv(csv_path: str) -> pd.DataFrame | None:
 
     df = pd.DataFrame(out)
     valid_time = df["時間(ms)"].notna().sum()
-    if valid_time < max(1, int(0.5 * len(df))):
+    if not preserve_experiment_slots and valid_time < max(1, int(0.5 * len(df))):
         return None
 
     df.attrs["sourceFormat"] = "famas_multi_experiment_csv"
+    df.attrs["famasValidExperimentIndexes"] = sorted(valid_experiment_indexes)
     df.attrs["famasMetadata"] = parse_famas_metadata(csv_path)
     return df
 
@@ -631,11 +638,11 @@ def read_table_robust(path: str) -> pd.DataFrame:
     raise DataProcessingError(f"Unsupported file type: {path}")
 
 
-def load_plot_dataframe(path: str) -> pd.DataFrame:
+def load_plot_dataframe(path: str, *, preserve_experiment_slots: bool = False) -> pd.DataFrame:
     """Prefer FAMAS multi-experiment normalization when available."""
     lower = path.lower()
     if lower.endswith(".csv"):
-        famas = try_parse_famas_multi_experiment_csv(path)
+        famas = try_parse_famas_multi_experiment_csv(path, preserve_experiment_slots=preserve_experiment_slots)
         if famas is not None:
             return famas
     return read_table_robust(path)

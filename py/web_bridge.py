@@ -4,6 +4,7 @@ import os
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from DataProcessor.services.cmc_analysis import (
     aggregate_cmc_qc_results,
@@ -20,6 +21,7 @@ from DataProcessor.services.dataframe_loader import (
     parse_famas_measurement_detail_volumes,
 )
 from DataProcessor.services.errors import DataProcessingError
+from DataProcessor.services.experiment_screening import screen_experiments
 from DataProcessor.services.plot_analysis import prepare_plot_dataset
 from DataProcessor.services.time_series_analysis import (
     analyze_noise,
@@ -90,7 +92,7 @@ def _prepare_plot_dataframe_and_dataset(
     avg_only: bool,
     show_original_with_avg: bool = False,
 ):
-    df = load_plot_dataframe(source_path)
+    df = load_plot_dataframe(source_path, preserve_experiment_slots=True)
     dataset = prepare_plot_dataset(
         df=df,
         start_text=start_text,
@@ -317,6 +319,31 @@ def analyze_plot_file(
             "yMax": _finite_or_none(y_max),
         },
     }
+
+
+def suggest_plot_experiments(source_path: str, options: dict[str, Any] | None = None) -> dict[str, Any]:
+    # Keep invalid/unused slots for the per-experiment explanation. Preserve the
+    # same numbered slots in plotting so a copied range selects the same curves.
+    df = load_plot_dataframe(source_path, preserve_experiment_slots=True)
+    volumes = {}
+    for col in df.columns:
+        name = str(col)
+        if name.startswith("V(uL).") and name[6:].isdigit():
+            volumes[int(name[6:])] = {"values": pd.to_numeric(df[col], errors="coerce").to_numpy(dtype=float), "source": "worksheet"}
+        elif name == "V(uL)":
+            volumes[1] = {"values": pd.to_numeric(df[col], errors="coerce").to_numpy(dtype=float), "source": "worksheet"}
+    if source_path.lower().endswith(".csv"):
+        detail = parse_famas_measurement_detail_volumes(source_path)
+        for idx, entries in detail.items():
+            values = np.full(len(df), np.nan)
+            for entry in entries:
+                offset = int(entry.get("rowIndex", 0)) - 1
+                value = _positive_float_or_none(entry.get("volume"))
+                if 0 <= offset < len(values) and value is not None:
+                    values[offset] = value
+            if np.isfinite(values).sum() >= 2:
+                volumes[idx] = {"values": values, "source": "detail"}
+    return _payload_value(screen_experiments(df, volumes, options))
 
 
 def analyze_time_series_quality(

@@ -88,6 +88,7 @@
 
   function setRuntimeReady(ready) {
     state.runtimeReady = ready;
+    if (ready && timeSeriesController) timeSeriesController.onRuntimeReady();
     dom.runtimeTag.textContent = ready ? "Ready" : "Booting";
     dom.runtimeTag.dataset.ready = String(ready);
     dom.actionButtons.forEach((button) => {

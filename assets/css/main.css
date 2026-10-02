@@ -874,6 +874,21 @@ th {
   background: rgba(0, 0, 0, 0.25);
 }
 
+.experiment-suggest { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #666; }
+.experiment-suggest[hidden] { display: none; }
+#plot-suggest-range { color: #222; user-select: text; font-family: monospace; }
+.experiment-suggest button { padding: 2px 7px; font-size: 11px; min-height: 0; }
+.suggest-settings { border: 1px solid #ddd; padding: 12px; min-width: 0; }
+.suggest-settings legend { font-size: 13px; font-weight: 600; }
+.suggest-dialog { max-height: calc(100vh - 48px); overflow: auto; }
+.suggest-rules { font-size: 13px; line-height: 1.6; color: #555; }
+.suggest-result { padding: 12px 0; border-top: 1px solid #e0e0e0; }
+.suggest-result h4 { margin: 0 0 6px; }
+.suggest-result[data-status="suggest"] h4 { color: #28714e; }
+.suggest-result[data-status="exclude"] h4 { color: #a5443f; }
+.suggest-result[data-status="review"] h4 { color: #91631e; }
+.suggest-result p, .suggest-result ul { margin: 6px 0; font-size: 13px; line-height: 1.6; }
+
 .help-dialog-body {
   padding: 16px;
 }

@@ -145,8 +145,11 @@ defaults while keeping the selected file. Session import keeps its restored
 controls for the first source-file reselection even in reset mode.
 
 After choosing a Time Series file, `Suggest` below Experiment Range gives a
-copyable range without changing the input. `Check` opens a per-experiment review
-of the full raw file, including incomplete curves and unused FAMAS slots. Default
+copyable range without changing the input. `Apply` fills that range into the
+input; use `Analyze and Plot` to render it. `Check` starts with a summary table
+of results, completeness, duration coverage, noise, evaporation and main reasons.
+Experiments without valid data are omitted. Detailed measurements and rules are
+available below in a collapsed section. Default
 screening requires at least 95% valid data, 90% of the longest curve's duration,
 10 valid points, a valid start, and ordered timestamps without gaps exceeding
 three times the median sampling interval. Local linear residuals remove the
@@ -164,6 +167,9 @@ the rounded worksheet. Short recordings are labelled as normalised estimates;
 they are not observed 10-minute losses. Missing/partial volume, unknown time
 units or volume increasing by more than 1% require review and are not silently
 accepted. Check shows the observed loss and volume-recording duration separately.
+
+PNG/SVG export buttons are in each plot header: Main Plot, Noise Results,
+Compare Plot, CMC Plot and Edited Figure.
 
 Defaults apply on opening, on `Reset Inputs`, or when selecting a new file in
 reset mode. Publication Plot inherits the incoming curve style; its saved seconds

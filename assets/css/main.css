@@ -498,6 +498,9 @@ select {
   margin-bottom: 12px;
 }
 
+.plot-controls-stack { display: grid; gap: 12px; }
+.plot-controls-stack > .button-row { justify-content: flex-end; }
+
 .slider-field {
   min-width: 220px;
   display: grid;
@@ -880,7 +883,18 @@ th {
 .experiment-suggest button { padding: 2px 7px; font-size: 11px; min-height: 0; }
 .suggest-settings { border: 1px solid #ddd; padding: 12px; min-width: 0; }
 .suggest-settings legend { font-size: 13px; font-weight: 600; }
-.suggest-dialog { max-height: calc(100vh - 48px); overflow: auto; }
+.suggest-dialog { width: min(1120px, calc(100vw - 40px)); max-height: calc(100vh - 48px); overflow: auto; }
+.suggest-overview { margin: 0 0 12px; font-size: 14px; }
+.suggest-table { width: 100%; min-width: 780px; font-size: 13px; }
+.suggest-table th, .suggest-table td { padding: 8px; vertical-align: top; }
+.suggest-table th { white-space: normal; }
+.suggest-table td:last-child { min-width: 180px; }
+.suggest-status { display: inline-block; white-space: nowrap; font-weight: 600; }
+.suggest-status[data-status="suggest"] { color: #28714e; }
+.suggest-status[data-status="exclude"] { color: #a5443f; }
+.suggest-status[data-status="review"] { color: #91631e; }
+.suggest-details { margin-top: 14px; }
+.suggest-details > summary { cursor: pointer; font-size: 13px; font-weight: 600; padding: 8px 0; }
 .suggest-rules { font-size: 13px; line-height: 1.6; color: #555; }
 .suggest-result { padding: 12px 0; border-top: 1px solid #e0e0e0; }
 .suggest-result h4 { margin: 0 0 6px; }

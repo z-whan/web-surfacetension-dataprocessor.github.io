@@ -461,6 +461,7 @@
         suggest: document.querySelector("#plot-suggest"),
         suggestRange: document.querySelector("#plot-suggest-range"),
         suggestCheck: document.querySelector("#plot-suggest-check"),
+        suggestApply: document.querySelector("#plot-suggest-apply"),
         suggestDialog: document.querySelector("#plot-suggest-dialog"),
         suggestDetails: document.querySelector("#plot-suggest-details"),
         suggestClose: document.querySelector("#plot-suggest-close"),
@@ -531,6 +532,7 @@
         this.dom.suggestDialog.showModal();
       });
       this.dom.suggestClose.addEventListener("click", () => this.dom.suggestDialog.close());
+      this.dom.suggestApply.addEventListener("click", () => this.applySuggestedRange());
       window.addEventListener("surface-lab-settings-changed", () => {
         if (this.state.file) this.refreshSuggestion();
       });
@@ -869,11 +871,20 @@
       }
     }
 
+    applySuggestedRange() {
+      const range = this.state.suggestionPayload && this.state.suggestionPayload.recommendedRange;
+      if (this.state.suggestionStatus !== "ready" || !range) return;
+      this.dom.plotExpRange.value = range;
+      this.dom.plotExpRange.focus();
+      this.setStatus(`Applied suggested experiments ${range}. Use Analyze and Plot to update the figure.`);
+    }
+
     renderSuggestion() {
       const payload = this.state.suggestionPayload;
       const status = this.state.suggestionStatus;
       this.dom.suggest.hidden = !this.state.file;
       this.dom.suggestRange.textContent = payload ? payload.recommendedRange || "—" : ["waiting", "loading"].includes(status) ? "…" : "—";
+      this.dom.suggestApply.disabled = status !== "ready" || !payload || !payload.recommendedRange;
       const children = [];
       const paragraph = (text, className) => domUtils.el("p", { text, className });
       if (!payload) {
@@ -882,24 +893,45 @@
           : status === "loading" ? "Checking all experiments in the selected file…" : "Select a data file to check experiments."));
       } else {
         const rules = payload.rules;
-        children.push(paragraph(this.state.file.name));
-        children.push(paragraph(`Suggested range: ${payload.recommendedRange || "None — see the reasons below."}`));
-        children.push(paragraph(`Raw full-file screening: valid data ≥${rules.validPercent}%; duration ≥${rules.durationPercent}% of the longest curve; at least 10 valid points and a valid start; no duplicate/reversed times or gaps >3× the median interval. Robust local noise ≤${rules.noiseThreshold} mN/m and 95th-percentile residual ≤${(3 * rules.noiseThreshold).toFixed(2)} mN/m. Evaporation ≤5%/10min. Change completeness and noise rules in Settings.`, "suggest-rules"));
-        children.push(paragraph("Noise uses local linear residuals (MAD), so a smooth downward trend is not counted as noise. Evaporation = max(0, (start volume − end volume) / start volume) × 100 × 600 / measured seconds. Missing volume or unknown time units require review. Suggestions do not change your selected range.", "suggest-rules"));
-        children.push(paragraph(`Abrupt spikes are also excluded when a change and immediate reversal both exceed ${(6 * rules.noiseThreshold).toFixed(2)} mN/m. This checks rare spikes that MAD can miss.`, "suggest-rules"));
+        const rows = payload.experiments.filter((row) => row.validPoints > 0);
+        children.push(paragraph(this.state.file.name, "field-hint"));
+        children.push(paragraph(`Suggested range: ${payload.recommendedRange || "None"}`, "suggest-overview"));
         const number = (value, digits = 2) => Number.isFinite(value) ? value.toFixed(digits) : "N/A";
         const labels = { suggest: "Suggested", exclude: "Excluded", review: "Needs review" };
-        payload.experiments.forEach((row) => {
-          const evap = Number.isFinite(row.evaporationPctPer10Min)
-            ? `${number(row.evaporationPctPer10Min)}%/10min${row.volumeDurationSeconds < 600 ? " (normalised from <10min)" : " (normalised)"}` : "N/A — cannot assess";
-          children.push(domUtils.el("section", { className: "suggest-result", attrs: { "data-status": row.status } }, [
+        if (rows.length) {
+          const headers = ["Experiment", "Result", "Valid data (%)", "Duration coverage (%)", "Noise (mN/m)", "Evaporation (%/10min)", "Main reason"];
+          children.push(domUtils.el("div", { className: "table-scroll" }, [
+            domUtils.el("table", { className: "suggest-table", attrs: { "aria-label": "Experiment screening summary" } }, [
+              domUtils.el("thead", {}, [domUtils.el("tr", {}, headers.map((text) => domUtils.el("th", { text, attrs: { scope: "col" } })))]),
+              domUtils.el("tbody", {}, rows.map((row) => domUtils.el("tr", {}, [
+                domUtils.el("th", { text: `Exp ${row.experimentIndex}`, attrs: { scope: "row" } }),
+                domUtils.el("td", {}, [domUtils.el("span", { text: labels[row.status], className: "suggest-status", attrs: { "data-status": row.status } })]),
+                domUtils.el("td", { text: number(row.validPercent, 1), attrs: { title: `${row.validPoints}/${row.totalPoints} valid points` } }),
+                domUtils.el("td", { text: number(row.durationCoveragePercent, 1), attrs: { title: `${number(row.durationSeconds, 1)} seconds` } }),
+                domUtils.el("td", { text: number(row.noiseSigma, 3) }),
+                domUtils.el("td", { text: `${number(row.evaporationPctPer10Min)}${Number.isFinite(row.evaporationPctPer10Min) && row.volumeDurationSeconds < 600 ? "*" : ""}` }),
+                domUtils.el("td", { text: row.status === "suggest" ? "Meets all screening rules." : row.reasons[0] || "Manual review required.", attrs: { title: row.reasons.join("\n") } }),
+              ]))),
+            ]),
+          ]));
+          children.push(paragraph("Evaporation is normalised to 10 minutes. * Measured for less than 10 minutes. N/A requires review.", "field-hint"));
+        }
+        const details = [
+          domUtils.el("summary", { text: "Detailed checks and screening rules" }),
+          paragraph(`Raw full-file screening: valid data ≥${rules.validPercent}%; duration ≥${rules.durationPercent}% of the longest curve; at least 10 valid points and a valid start; no duplicate/reversed times or gaps >3× the median interval. Robust local noise ≤${rules.noiseThreshold} mN/m and 95th-percentile residual ≤${(3 * rules.noiseThreshold).toFixed(2)} mN/m. Evaporation ≤5%/10min. Change completeness and noise rules in Settings.`, "suggest-rules"),
+          paragraph("Noise uses local linear residuals (MAD), so a smooth downward trend is not counted as noise. Evaporation = max(0, (start volume − end volume) / start volume) × 100 × 600 / measured seconds. Missing volume or unknown time units require review. Use Apply beside Check to fill the suggested range.", "suggest-rules"),
+          paragraph(`Abrupt spikes are also excluded when a change and immediate reversal both exceed ${(6 * rules.noiseThreshold).toFixed(2)} mN/m. This checks rare spikes that MAD can miss.`, "suggest-rules"),
+        ];
+        rows.forEach((row) => {
+          details.push(domUtils.el("section", { className: "suggest-result", attrs: { "data-status": row.status } }, [
             domUtils.el("h4", { text: `Exp ${row.experimentIndex} · ${labels[row.status]}` }),
-            paragraph(`10min evaporation: ${evap}`),
+            paragraph(`10min evaporation: ${number(row.evaporationPctPer10Min)}%/10min (normalised).`),
             paragraph(`Valid data: ${row.validPoints}/${row.totalPoints} (${number(row.validPercent, 1)}%); duration: ${number(row.durationSeconds, 1)} s (${number(row.durationCoveragePercent, 1)}% coverage); robust noise: ${number(row.noiseSigma, 3)} mN/m; residual P95: ${number(row.residualP95, 3)} mN/m.`),
             paragraph(`Volume: ${row.volumePoints} valid points; ${row.volumeSource === "detail" ? "FAMAS detail (higher precision)" : row.volumeSource === "worksheet" ? "worksheet" : "unavailable"}; measured loss: ${number(row.volumeLossPercent)}% over ${number(row.volumeDurationSeconds, 1)} s.`),
             domUtils.el("ul", {}, row.reasons.map((reason) => domUtils.el("li", { text: reason }))),
           ]));
         });
+        if (rows.length) children.push(domUtils.el("details", { className: "suggest-details" }, details));
       }
       domUtils.replaceChildren(this.dom.suggestDetails, children);
     }

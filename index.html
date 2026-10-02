@@ -13,7 +13,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="./assets/icons/favicon-32.png?v=20260424b" />
     <link rel="apple-touch-icon" sizes="180x180" href="./assets/icons/apple-touch-icon.png?v=20260424b" />
     <link rel="manifest" href="./site.webmanifest?v=20260424b" />
-    <link rel="stylesheet" href="./assets/css/main.css?v=20261002c" />
+    <link rel="stylesheet" href="./assets/css/main.css?v=20261002d" />
     <script>window.PlotlyConfig = { MathJaxConfig: "local" };</script>
     <script
       src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_SVG.js"
@@ -29,7 +29,7 @@
     <script src="./assets/js/charts.js?v=20261002b" defer></script>
     <script src="./assets/js/publication-plot.js?v=20261002b" defer></script>
     <script src="./assets/js/pyodide-client.js?v=20260424a" defer></script>
-    <script src="./assets/js/time-series-module.js?v=20261002c" defer></script>
+    <script src="./assets/js/time-series-module.js?v=20261002d" defer></script>
     <script src="./assets/js/compare-module.js?v=20261002a" defer></script>
     <script src="./assets/js/app.js?v=20261002c" defer></script>
   </head>
@@ -164,6 +164,7 @@
                     <div id="plot-suggest" class="experiment-suggest" hidden>
                       <span>Suggest:</span><span id="plot-suggest-range" aria-live="polite">—</span>
                       <button id="plot-suggest-check" class="ghost-button" type="button" aria-haspopup="dialog">Check</button>
+                      <button id="plot-suggest-apply" class="ghost-button" type="button" disabled>Apply</button>
                     </div>
                   </div>
                   <div class="option-stack">
@@ -216,12 +217,6 @@
                       <option value="band">Smooth + Shaded Band</option>
                     </select>
                   </label>
-                  <button id="plot-export" class="secondary-button" type="button" disabled>
-                    Export PNG
-                  </button>
-                  <button id="plot-export-svg" class="secondary-button" type="button" disabled>
-                    Export SVG
-                  </button>
                   <button id="plot-send-publication" class="ghost-button" type="button" disabled>
                     Send to Publication Plot
                   </button>
@@ -320,42 +315,48 @@
                   <h3>Main Plot</h3>
                   <p>Use the slider if the vertical span looks too flat or too tight.</p>
                 </div>
-                <div class="slider-field">
-                  <label for="plot-y-span">Y-axis Span</label>
-                  <input id="plot-y-span" type="range" min="40" max="400" step="5" value="100" />
-                  <div class="slider-field-meta">
-                    <span class="slider-value" data-plot-y-span-value>100%</span>
-                    <div class="range-input-row">
-                      <input
-                        id="plot-y-min"
-                        type="text"
-                        inputmode="decimal"
-                        placeholder="min"
-                        aria-label="Y-axis lower bound"
-                        disabled
-                      />
-                      <span class="range-separator">to</span>
-                      <input
-                        id="plot-y-max"
-                        type="text"
-                        inputmode="decimal"
-                        placeholder="max"
-                        aria-label="Y-axis upper bound"
-                        disabled
-                      />
-                    </div>
+                <div class="plot-controls-stack">
+                  <div class="button-row">
+                    <button id="plot-export" class="secondary-button" type="button" disabled>Export PNG</button>
+                    <button id="plot-export-svg" class="secondary-button" type="button" disabled>Export SVG</button>
                   </div>
-                  <p class="field-hint">
-                    Slider updates the default range. Edit the boxes for a custom range, or clear both to return to slider mode.
-                  </p>
+                  <div class="slider-field">
+                    <label for="plot-y-span">Y-axis Span</label>
+                    <input id="plot-y-span" type="range" min="40" max="400" step="5" value="100" />
+                    <div class="slider-field-meta">
+                      <span class="slider-value" data-plot-y-span-value>100%</span>
+                      <div class="range-input-row">
+                        <input
+                          id="plot-y-min"
+                          type="text"
+                          inputmode="decimal"
+                          placeholder="min"
+                          aria-label="Y-axis lower bound"
+                          disabled
+                        />
+                        <span class="range-separator">to</span>
+                        <input
+                          id="plot-y-max"
+                          type="text"
+                          inputmode="decimal"
+                          placeholder="max"
+                          aria-label="Y-axis upper bound"
+                          disabled
+                        />
+                      </div>
+                    </div>
+                    <p class="field-hint">
+                      Slider updates the default range. Edit the boxes for a custom range, or clear both to return to slider mode.
+                    </p>
+                  </div>
                 </div>
               </div>
               <div class="metric-grid" data-plot-summary></div>
               <div id="plot-canvas" class="plot-surface"></div>
             </div>
 
-            <div class="table-card" data-plot-noise-card>
-              <div class="table-card-header">
+            <div class="plot-card" data-plot-noise-card>
+              <div class="plot-toolbar">
                 <div>
                   <h3>Noise Results</h3>
                   <p class="result-text" data-plot-noise-summary>No noise analysis yet.</p>
@@ -424,12 +425,6 @@
                       <option value="band">Smooth + Shaded Band</option>
                     </select>
                   </label>
-                <button id="compare-export" class="secondary-button" type="button" disabled>
-                  Export PNG
-                </button>
-                <button id="compare-export-svg" class="secondary-button" type="button" disabled>
-                  Export SVG
-                </button>
                 <button id="compare-send-publication" class="ghost-button" type="button" disabled>
                   Send to Publication Plot
                 </button>
@@ -451,34 +446,40 @@
                 <h3>Compare Plot</h3>
                 <p>Legend labels follow the editable table indexes.</p>
               </div>
-              <div class="slider-field">
-                <label for="compare-y-span">Y-axis Span</label>
-                <input id="compare-y-span" type="range" min="40" max="400" step="5" value="100" />
-                <div class="slider-field-meta">
-                  <span class="slider-value" data-compare-y-span-value>100%</span>
-                  <div class="range-input-row">
-                    <input
-                      id="compare-y-min"
-                      type="text"
-                      inputmode="decimal"
-                      placeholder="min"
-                      aria-label="Compare y-axis lower bound"
-                      disabled
-                    />
-                    <span class="range-separator">to</span>
-                    <input
-                      id="compare-y-max"
-                      type="text"
-                      inputmode="decimal"
-                      placeholder="max"
-                      aria-label="Compare y-axis upper bound"
-                      disabled
-                    />
-                  </div>
+              <div class="plot-controls-stack">
+                <div class="button-row">
+                  <button id="compare-export" class="secondary-button" type="button" disabled>Export PNG</button>
+                  <button id="compare-export-svg" class="secondary-button" type="button" disabled>Export SVG</button>
                 </div>
-                <p class="field-hint">
-                  Slider updates the default range. Edit the boxes for a custom range, or clear both to return to slider mode.
-                </p>
+                <div class="slider-field">
+                  <label for="compare-y-span">Y-axis Span</label>
+                  <input id="compare-y-span" type="range" min="40" max="400" step="5" value="100" />
+                  <div class="slider-field-meta">
+                    <span class="slider-value" data-compare-y-span-value>100%</span>
+                    <div class="range-input-row">
+                      <input
+                        id="compare-y-min"
+                        type="text"
+                        inputmode="decimal"
+                        placeholder="min"
+                        aria-label="Compare y-axis lower bound"
+                        disabled
+                      />
+                      <span class="range-separator">to</span>
+                      <input
+                        id="compare-y-max"
+                        type="text"
+                        inputmode="decimal"
+                        placeholder="max"
+                        aria-label="Compare y-axis upper bound"
+                        disabled
+                      />
+                    </div>
+                  </div>
+                  <p class="field-hint">
+                    Slider updates the default range. Edit the boxes for a custom range, or clear both to return to slider mode.
+                  </p>
+                </div>
               </div>
             </div>
             <div id="compare-canvas" class="plot-surface"></div>
@@ -669,12 +670,6 @@
                   <button id="cmc-clear-files" class="ghost-button" type="button">
                     Clear Files
                   </button>
-                  <button id="cmc-export" class="secondary-button" type="button" disabled>
-                    Export PNG
-                  </button>
-                  <button id="cmc-export-svg" class="secondary-button" type="button" disabled>
-                    Export SVG
-                  </button>
                   <button id="cmc-export-json" class="secondary-button" type="button" disabled>
                     Export CMC JSON
                   </button>
@@ -688,7 +683,13 @@
 
           <div class="results-stack">
             <div class="plot-card">
-              <h3>CMC Plot</h3>
+              <div class="plot-toolbar">
+                <h3>CMC Plot</h3>
+                <div class="button-row">
+                  <button id="cmc-export" class="secondary-button" type="button" disabled>Export PNG</button>
+                  <button id="cmc-export-svg" class="secondary-button" type="button" disabled>Export SVG</button>
+                </div>
+              </div>
               <div class="metric-grid" data-cmc-summary></div>
               <div id="cmc-canvas" class="plot-surface"></div>
             </div>

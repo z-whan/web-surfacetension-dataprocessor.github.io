@@ -22,6 +22,7 @@ from DataProcessor.services.dataframe_loader import (
 )
 from DataProcessor.services.errors import DataProcessingError
 from DataProcessor.services.experiment_screening import screen_experiments
+from DataProcessor.services.langmuir_analysis import fit_langmuir_kinetics
 from DataProcessor.services.plot_analysis import prepare_plot_dataset
 from DataProcessor.services.time_series_analysis import (
     analyze_noise,
@@ -319,6 +320,28 @@ def analyze_plot_file(
             "yMax": _finite_or_none(y_max),
         },
     }
+
+
+def fit_plot_langmuir(
+    source_path: str,
+    start_text: str,
+    end_text: str,
+    exp_range_text: str,
+    avg_only: bool,
+    options: dict[str, Any] | None = None,
+    show_original_with_avg: bool = False,
+) -> dict[str, Any]:
+    dataset = _load_plot_dataset(
+        source_path, start_text, end_text, exp_range_text, avg_only, show_original_with_avg,
+    )
+    payload = fit_langmuir_kinetics(
+        x_label=dataset.x_label, x_values=dataset.x_values,
+        y_values=dataset.plot_values, options=options,
+    )
+    return _payload_value({
+        **payload, "sourceName": os.path.basename(source_path),
+        "rowRange": list(dataset.row_range), "expTag": dataset.exp_tag,
+    })
 
 
 def suggest_plot_experiments(source_path: str, options: dict[str, Any] | None = None) -> dict[str, Any]:

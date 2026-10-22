@@ -600,6 +600,35 @@
     );
   }
 
+  async function renderLangmuirPlot(target, payload, residuals) {
+    const traces = [];
+    payload.results.forEach((row, index) => {
+      if (row.status !== "ok") return;
+      const color = seriesColor(index);
+      const name = domUtils.escapeHtml(row.name);
+      const observed = residuals ? row.residuals : row.observed;
+      traces.push({
+        type: "scatter", mode: "markers", name: `${name}${residuals ? " residual" : " data"}`,
+        x: observed.x, y: observed.y, legendgroup: `langmuir-${index}`,
+        marker: { color, size: 4, opacity: 0.55 },
+        hovertemplate: `${name}<br>%{x}, %{y:.5f}<extra></extra>`,
+      });
+      if (!residuals) traces.push({
+        type: "scatter", mode: "lines", name: `${name} fit`,
+        x: row.curve.x, y: row.curve.y, legendgroup: `langmuir-${index}`,
+        line: { color, width: 2.5, dash: "dash" },
+      });
+    });
+    const layout = baseLayout({
+      xLabel: payload.xLabel, yLabel: residuals ? "Observed − fitted (mN/m)" : "Surface tension γ (mN/m)",
+      title: residuals ? "Langmuir fit residuals" : "Apparent Langmuir kinetic fit", xScale: "linear", yScale: "linear",
+    });
+    layout.legend = { ...layout.legend, yanchor: "top", y: -0.25 };
+    layout.margin.b = 140;
+    if (residuals) layout.shapes = [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: { color: "#777", width: 1, dash: "dot" } }];
+    await Plotly.react(target, traces, layout, { responsive: true, displaylogo: false });
+  }
+
   async function renderAnalysisPlot(target, payload) {
     const traces = payload.series.map((series, index) => ({
       type: "scatter",
@@ -864,6 +893,7 @@
   window.SurfaceLabCharts = {
     clearPlot,
     renderAnalysisPlot,
+    renderLangmuirPlot,
     renderComparePlot,
     renderTimeSeriesPlot,
     renderCmcPlot,

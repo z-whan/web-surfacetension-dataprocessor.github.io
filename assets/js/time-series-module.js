@@ -514,6 +514,8 @@
     }
 
     bind() {
+      this.langmuir = window.SurfaceLabLangmuirModule ? window.SurfaceLabLangmuirModule.createController(this) : null;
+      if (this.langmuir) this.langmuir.bind();
       this.dom.plotInput.accept = this.config.ACCEPTED_DATA_EXTENSIONS;
       populateMethodSelect(this.dom.trendMethod, TREND_METHODS);
       populateMethodSelect(this.dom.noiseMethod, NOISE_METHODS);
@@ -640,6 +642,7 @@
     }
 
     handleFileSelection() {
+      if (this.langmuir) this.langmuir.invalidate();
       const file = this.dom.plotInput.files[0] || null;
       const preserve = this.awaitingSessionFile || window.SurfaceLabSettings.get().newFileBehavior === "preserve";
       this.awaitingSessionFile = false;
@@ -670,6 +673,7 @@
     }
 
     resetInputs() {
+      if (this.langmuir) this.langmuir.restoreSettings({});
       const currentFile = this.state.file;
       this.clearError();
 
@@ -875,6 +879,7 @@
       const range = this.state.suggestionPayload && this.state.suggestionPayload.recommendedRange;
       if (this.state.suggestionStatus !== "ready" || !range) return;
       this.dom.plotExpRange.value = range;
+      if (this.langmuir) this.langmuir.invalidate();
       this.dom.plotExpRange.focus();
       this.setStatus(`Applied suggested experiments ${range}. Use Analyze and Plot to update the figure.`);
     }
@@ -1543,6 +1548,7 @@
           methodKey: this.dom.noiseMethod.value,
           parameters: noiseDefinition ? collectParameters(this.dom.noiseParams, noiseDefinition) : {},
         },
+        langmuir: this.langmuir ? this.langmuir.getSettings() : {},
         plotStyle: {
           mode: this.state.plotStyle,
           scientificStyle: this.state.plotStyle !== "raw",
@@ -1559,6 +1565,7 @@
     restoreSessionState(sessionState) {
       const warnings = [];
       const input = isPlainObject(sessionState) ? sessionState : {};
+      if (this.langmuir) this.langmuir.restoreSettings(input.langmuir);
       const selection = isPlainObject(input.selection) ? input.selection : {};
       const trend = isPlainObject(input.trend) ? input.trend : {};
       const noise = isPlainObject(input.noise) ? input.noise : {};

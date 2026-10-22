@@ -261,6 +261,19 @@ select {
   gap: 16px;
 }
 
+.results-stack,
+.results-stack > .plot-card {
+  min-width: 0;
+}
+
+[data-langmuir-card] .plot-toolbar {
+  flex-wrap: wrap;
+}
+
+[data-langmuir-card] table {
+  white-space: nowrap;
+}
+
 .field-card,
 .plot-card,
 .table-card {

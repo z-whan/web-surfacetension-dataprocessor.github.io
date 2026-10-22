@@ -64,6 +64,7 @@
     const selection = isPlainObject(value.selection) ? value.selection : {};
     const trend = isPlainObject(value.trend) ? value.trend : {};
     const noise = isPlainObject(value.noise) ? value.noise : {};
+    const langmuir = isPlainObject(value.langmuir) ? value.langmuir : {};
     const yAxis = isPlainObject(value.yAxis) ? value.yAxis : {};
     const file = isPlainObject(value.file) ? value.file : null;
 
@@ -94,6 +95,11 @@
         parameters: cloneJson(isPlainObject(noise.parameters) ? noise.parameters : {}),
       },
       plotStyle: sanitizePlotStyle(value.plotStyle),
+      langmuir: {
+        timeMin: safeString(langmuir.timeMin, ""),
+        timeMax: safeString(langmuir.timeMax, ""),
+        timeUnit: ["auto", "ms", "s", "min"].includes(langmuir.timeUnit) ? langmuir.timeUnit : "auto",
+      },
       yAxis: {
         spanPercent: safeNumber(yAxis.spanPercent, 100),
         manualRange: Array.isArray(yAxis.manualRange)

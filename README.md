@@ -30,6 +30,7 @@ the current session and are not uploaded to a project backend.
 
 - Plot FAMAS-style or generic surface-tension time series.
 - Inspect data quality, extract trends, and quantify noise.
+- Fit apparent Langmuir kinetic relaxation to selected time-series curves.
 - Mark selected curves and compare them on one plot.
 - Review CMC droplets before fitting: per-droplet plateau, noise, drift,
   evaporation, flags, and manual Used overrides.
@@ -70,6 +71,32 @@ Use this tab for one source file at a time.
 5. Use `Mark for Compare` to send visible curves to the Compare tab.
 
 The Time Series `Help` button explains each trend and noise method in the UI.
+
+#### Langmuir Kinetic Fit
+
+Expand `Langmuir Kinetic Fit` below Trend Extraction. It uses the same source
+file, row/experiment selection and Avg options as the main plot, and fits the
+unsmoothed observations with equal weights. The main plot need not be run first.
+Optional Fit Time Min/Max are in source-axis units. Auto detects labelled ms,
+s or min; choose a source unit explicitly for an unlabelled time column.
+
+The model is `γ(t) = γ∞ + A exp[−(t − t₀)/τ]`, constrained to positive γ∞, A
+and τ. t₀ is the first finite observation in each fit window. Results include
+γ(t₀), γ∞, A, τ (s), k_obs = 1/τ (s⁻¹), t½ = τ ln(2) (s), R², RMSE, point
+count and the actual fit window. Expand Residuals to inspect observed minus
+fitted values. PNG/SVG and Publication Plot use the observation/fit overlay;
+Fit JSON also contains the model, options, source selection and residuals.
+Session JSON preserves fit controls; refit after selecting the source file.
+File or selection changes clear the previous fit.
+
+This is a single-exponential approximation to Langmuir kinetics at constant
+bulk concentration with an approximately linear tension/coverage relation;
+see [Surfactant adsorption kinetics in microfluidics](https://pmc.ncbi.nlm.nih.gov/articles/PMC5068272/).
+It does not fit a concentration isotherm. γ∞ is an extrapolated asymptote rather
+than measured equilibrium, and k_obs cannot separate adsorption/desorption
+constants. The UI flags short windows, sampling limits, search boundaries and
+low R². At least six distinct finite times are required per curve; failed curves
+are reported individually while valid curves remain available.
 
 ### CMC Analysis
 
@@ -236,12 +263,14 @@ and d(g/cm^3) are surfaced when available.
 │     ├─ pyodide-client.js     # Pyodide bootstrap and bridge calls
 │     ├─ session-manager.js    # Session JSON sanitization
 │     ├─ time-series-module.js # Time Series tab controller
+│     ├─ langmuir-module.js    # Langmuir fit controls, results and exports
 │     └─ python-sources.js     # Generated from py/, do not edit manually
 ├─ py/
 │  ├─ web_bridge.py            # Browser-callable Python API
 │  └─ DataProcessor/
 │     ├─ services/
 │     │  ├─ cmc_analysis.py        # Droplets, QC, aggregation, CMC fitting
+│     │  ├─ langmuir_analysis.py   # Apparent Langmuir kinetic relaxation fitting
 │     │  ├─ dataframe_loader.py    # CSV/XLS loading and FAMAS parsing
 │     │  ├─ plot_analysis.py       # Time-series column/range preparation
 │     │  ├─ time_series_analysis.py# Quality, trend, and noise analysis

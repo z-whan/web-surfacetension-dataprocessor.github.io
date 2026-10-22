@@ -13,23 +13,24 @@
     <link rel="icon" type="image/png" sizes="32x32" href="./assets/icons/favicon-32.png?v=20260424b" />
     <link rel="apple-touch-icon" sizes="180x180" href="./assets/icons/apple-touch-icon.png?v=20260424b" />
     <link rel="manifest" href="./site.webmanifest?v=20260424b" />
-    <link rel="stylesheet" href="./assets/css/main.css?v=20261002d" />
+    <link rel="stylesheet" href="./assets/css/main.css?v=20261022a" />
     <script>window.PlotlyConfig = { MathJaxConfig: "local" };</script>
     <script
       src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_SVG.js"
     ></script>
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
     <script src="./assets/js/config.js?v=20260424a" defer></script>
-    <script src="./assets/js/python-sources.js?v=20261002c" defer></script>
+    <script src="./assets/js/python-sources.js?v=20261022a" defer></script>
     <script src="./assets/js/dom-utils.js?v=20260501a" defer></script>
     <script src="./assets/js/downloads.js?v=20260501a" defer></script>
     <script src="./assets/js/settings.js?v=20261002c" defer></script>
-    <script src="./assets/js/session-manager.js?v=20261002a" defer></script>
+    <script src="./assets/js/session-manager.js?v=20261022a" defer></script>
     <script src="./assets/js/cmc-workflow.js?v=20260515b" defer></script>
-    <script src="./assets/js/charts.js?v=20261002b" defer></script>
+    <script src="./assets/js/charts.js?v=20261022a" defer></script>
     <script src="./assets/js/publication-plot.js?v=20261002b" defer></script>
     <script src="./assets/js/pyodide-client.js?v=20260424a" defer></script>
-    <script src="./assets/js/time-series-module.js?v=20261002d" defer></script>
+    <script src="./assets/js/langmuir-module.js?v=20261022a" defer></script>
+    <script src="./assets/js/time-series-module.js?v=20261022a" defer></script>
     <script src="./assets/js/compare-module.js?v=20261002a" defer></script>
     <script src="./assets/js/app.js?v=20261002c" defer></script>
   </head>
@@ -283,6 +284,48 @@
               </div>
             </details>
 
+            <details class="field-card collapsible-card" id="plot-langmuir-controls">
+              <summary>Langmuir Kinetic Fit</summary>
+              <div class="collapsible-card-body">
+                <p>Fit the selected raw surface-tension curves with an apparent single-exponential relaxation.</p>
+                <div class="info-box">γ(t) = γ∞ + A exp[−(t − t₀) / τ]</div>
+                <div class="field-grid">
+                  <div class="form-grid">
+                    <div class="field">
+                      <label for="plot-langmuir-min">Fit Time Min</label>
+                      <input id="plot-langmuir-min" type="text" inputmode="decimal" placeholder="First selected time" />
+                    </div>
+                    <div class="field">
+                      <label for="plot-langmuir-max">Fit Time Max</label>
+                      <input id="plot-langmuir-max" type="text" inputmode="decimal" placeholder="Last selected time" />
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label for="plot-langmuir-unit">Source Time Unit</label>
+                    <select id="plot-langmuir-unit">
+                      <option value="auto">Auto from time-column label</option>
+                      <option value="ms">Milliseconds (ms)</option>
+                      <option value="s">Seconds (s)</option>
+                      <option value="min">Minutes (min)</option>
+                    </select>
+                  </div>
+                  <p class="field-hint">Uses the file, row range, experiment range and Avg options above. Time limits use source-axis units; τ, half-time and k_obs are reported in seconds / s⁻¹. t₀ is the first valid time in each fit window. Fits use unsmoothed data with equal observation weights.</p>
+                  <div class="button-row">
+                    <button id="plot-langmuir-run" class="primary-button" type="button" data-requires-runtime="true">Fit Langmuir</button>
+                    <button id="plot-langmuir-clear" class="ghost-button" type="button">Clear Fit</button>
+                  </div>
+                  <div class="info-box" data-langmuir-status role="status" aria-live="polite">No Langmuir fit yet.</div>
+                  <details class="collapsible-section">
+                    <summary>Model assumptions</summary>
+                    <div class="collapsible-section-body">
+                      <p class="field-hint">Constant bulk concentration and an approximately linear relation between surface tension and coverage are assumed. A &gt; 0, γ∞ &gt; 0, τ &gt; 0. γ∞ is an extrapolated asymptote, not a measured equilibrium value. A single curve cannot separate adsorption and desorption rate constants or establish the adsorption mechanism.</p>
+                      <p class="field-hint"><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC5068272/" target="_blank" rel="noopener noreferrer">Langmuir kinetic relaxation: source and context</a></p>
+                    </div>
+                  </details>
+                </div>
+              </div>
+            </details>
+
             <details class="field-card collapsible-card">
               <summary>Noise Analysis</summary>
               <div class="collapsible-card-body">
@@ -353,6 +396,31 @@
               </div>
               <div class="metric-grid" data-plot-summary></div>
               <div id="plot-canvas" class="plot-surface"></div>
+            </div>
+
+            <div class="plot-card" data-langmuir-card hidden>
+              <div class="plot-toolbar">
+                <div>
+                  <h3>Langmuir Fit Results</h3>
+                  <p class="result-text" data-langmuir-summary></p>
+                </div>
+                <div class="button-row">
+                  <button id="plot-langmuir-export" class="secondary-button" type="button" disabled>Export PNG</button>
+                  <button id="plot-langmuir-export-svg" class="secondary-button" type="button" disabled>Export SVG</button>
+                  <button id="plot-langmuir-export-json" class="secondary-button" type="button" disabled>Export Fit JSON</button>
+                  <button id="plot-langmuir-send-publication" class="ghost-button" type="button" disabled>Send to Publication Plot</button>
+                </div>
+              </div>
+              <div data-langmuir-table></div>
+              <div data-langmuir-warnings></div>
+              <div id="plot-langmuir-canvas" class="plot-surface" hidden></div>
+              <details class="collapsible-section" data-langmuir-residual-section hidden>
+                <summary>Residuals (observed − fitted)</summary>
+                <div class="collapsible-section-body">
+                  <p class="field-hint">Look for trends or structure that the single-exponential model does not capture.</p>
+                  <div id="plot-langmuir-residual-canvas" class="plot-surface plot-surface-secondary"></div>
+                </div>
+              </details>
             </div>
 
             <div class="plot-card" data-plot-noise-card>

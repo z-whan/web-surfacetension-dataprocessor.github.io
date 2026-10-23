@@ -321,6 +321,10 @@ def fit_langmuir_kinetics(*, x_label, x_values, y_values, options=None):
         try:
             fitter = _fit_double if model == "double" else _fit_one
             result = fitter(x[mask], y[mask], scale)
+            # Use the last finite, sorted observation in the selected fit window.
+            # Keep its sign: measurement noise can put the endpoint below gamma_inf.
+            result["gammaEnd"] = result["observed"]["y"][-1]
+            result["endpointGap"] = result["gammaEnd"] - result["gammaInf"]
         except DataProcessingError as exc:
             result = {"status": "error", "message": str(exc), "warnings": []}
         results.append({"name": str(name), **result})

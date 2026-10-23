@@ -170,6 +170,7 @@
         } else {
           children.push(metrics([
             ["N", row.n], ["γ(t₀) (mN/m)", number(row.gammaStart)], ["γ∞ (mN/m)", number(row.gammaInf)],
+            ["End gap γend − γ∞ (mN/m)", number(row.endpointGap)],
             ["R²", number(row.rSquared)], ["RMSE (mN/m)", number(row.rmse)],
           ]));
           const components = double

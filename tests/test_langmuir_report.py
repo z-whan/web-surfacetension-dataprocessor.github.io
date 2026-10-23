@@ -47,6 +47,14 @@ class LangmuirReportTests(unittest.TestCase):
         self.assertEqual(result["observedTime"][0], 0)
         np.testing.assert_allclose(result["residualY"], row["residuals"]["y"])
         np.testing.assert_allclose(result["fittedY"] + result["totalDecrease"], row["gammaStart"])
+        self.assertAlmostEqual(result["endpointGap"], row["observed"]["y"][-1] - row["gammaInf"])
+        self.assertNotAlmostEqual(result["endpointGap"], result["fittedY"][-1] - row["gammaInf"], places=3)
+
+    def test_report_keeps_negative_observed_endpoint_gap(self):
+        row = example_row(False)
+        row["observed"]["y"][-1] = 39.8
+        result = decompose_fit(row, 0.001, False)
+        self.assertAlmostEqual(result["endpointGap"], -0.2)
 
     def test_single_component_and_zero_amplitude(self):
         result = decompose_fit(example_row(False), 0.001, False)

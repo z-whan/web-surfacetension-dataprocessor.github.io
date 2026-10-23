@@ -38,7 +38,7 @@ fit.restoreSettings({ timeMin: "1000", timeMax: "50000", timeUnit: "ms" });
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const payload = {
   assumptions: "test model", summary: { fitted: 1, total: 1 },
-  results: [{ name: "Avg (1-2)", status: "ok", warnings: [], n: 48, gammaInf: 40, tauSeconds: 20, rSquared: 0.99 }],
+  results: [{ name: "Avg (1-2)", status: "ok", warnings: [], n: 48, gammaInf: 40, gammaEnd: 39.8, endpointGap: -0.2, tauSeconds: 20, rSquared: 0.99 }],
 };
 (async () => {
   const old = fit.fit();
@@ -60,11 +60,14 @@ const payload = {
   assert.strictEqual(fit.dom.png.disabled, false);
   assert.strictEqual(fit.dom.json.disabled, false);
   assert.strictEqual(fit.dom.pdf.disabled, false);
+  assert(JSON.stringify(fit.dom.table.children).includes("End gap γend − γ∞ (mN/m)"));
+  assert(JSON.stringify(fit.dom.table.children).includes("-0.20000"), "negative endpoint deviations must remain visible");
   const pdf = fit.exportPdf();
   await tick();
   const pdfJob = jobs.pop();
   assert.strictEqual(pdfJob.args[0], "export_langmuir_pdf");
   assert.strictEqual(JSON.parse(pdfJob.args[1]).sourceName, "second.csv");
+  assert.strictEqual(JSON.parse(pdfJob.args[1]).results[0].endpointGap, -0.2);
   pdfJob.resolve({ dataBase64: Buffer.from("%PDF-test").toString("base64"), mimeType: "application/pdf" });
   await pdf;
   assert.deepStrictEqual(packages, [["matplotlib"]]);
@@ -86,6 +89,7 @@ const payload = {
   const parameters = JSON.stringify(fit.dom.table.children);
   assert(parameters.includes("Fast component") && parameters.includes("Slow component"));
   assert(parameters.includes("160.00") && parameters.includes("0.0062500"), "slow-component parameters must remain visible");
+  assert(parameters.includes("-0.20000"), "double fits must also show the endpoint gap");
   assert.deepStrictEqual(cleaned.sort(), ["first.csv", "second.csv", "second.csv"]);
   parent.dom.plotExpRange.listeners.input();
   assert.strictEqual(fit.payload, null);

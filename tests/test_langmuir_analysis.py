@@ -28,6 +28,8 @@ class LangmuirTests(unittest.TestCase):
             self.assertAlmostEqual(row[key], expected, places=6)
         self.assertAlmostEqual(row["rSquared"], 1, places=12)
         self.assertLess(row["rmse"], 1e-7)
+        self.assertAlmostEqual(row["gammaEnd"], y[-1], places=12)
+        self.assertAlmostEqual(row["endpointGap"], 28 * math.exp(-600 / 90), places=6)
         self.assertEqual(row["t0"], 15)
         self.assertEqual(row["warnings"], [])
         np.testing.assert_allclose(row["residuals"]["y"], 0, atol=1e-7)
@@ -60,6 +62,23 @@ class LangmuirTests(unittest.TestCase):
         self.assertEqual(self.fit(t, y, options={"timeMin": 100})["summary"]["fitted"], 0)
         self.assertEqual(self.fit(t, -y)["summary"]["fitted"], 0)
         self.assertEqual(self.fit(t, 80 - y)["summary"]["fitted"], 0)
+
+    def test_endpoint_gap_uses_last_valid_window_observation_and_keeps_negative_noise(self):
+        t = np.arange(0, 621, 10, dtype=float)
+        for model in ("single", "double"):
+            with self.subTest(model=model):
+                y = 40 + 25 * np.exp(-t / 70) if model == "single" else 40 + 12 * np.exp(-t / 20) + 20 * np.exp(-t / 160)
+                y[t == 590] = 39
+                y[t == 600] = np.nan
+                y[t > 600] = 10  # Outside the selected fit window.
+                row = self.fit(t[::-1] * 1000, y[::-1], "Time (ms)",
+                               {"model": model, "timeMin": 20000, "timeMax": 600000})["results"][0]
+                self.assertEqual(row["timeEnd"], 590000)
+                self.assertEqual(row["gammaEnd"], 39)
+                self.assertAlmostEqual(row["endpointGap"], 39 - row["gammaInf"], places=12)
+                self.assertLess(row["endpointGap"], 0)
+                self.assertAlmostEqual(row["endpointGap"], row["curve"]["y"][-1] - row["gammaInf"] + row["residuals"]["y"][-1], places=10)
+                json.dumps(row, allow_nan=False)
 
     def test_missing_unsorted_and_short_windows(self):
         t = np.array([5, 0, 1, 2, 3, 4, 6, 7, 8, 9, 9, 10], dtype=float)
@@ -105,6 +124,7 @@ class LangmuirTests(unittest.TestCase):
         self.assertEqual(row["status"], "ok")
         self.assertAlmostEqual(row["gammaInf"], 40, places=6)
         self.assertAlmostEqual(row["gammaStart"], 72, places=6)
+        self.assertAlmostEqual(row["endpointGap"], 12 * math.exp(-600 / 20) + 20 * math.exp(-600 / 160), places=6)
         self.assertEqual(row["t0"], 15)
         for component, amplitude, tau in zip(row["components"], (12, 20), (20, 160)):
             self.assertAlmostEqual(component["amplitude"], amplitude, places=6)

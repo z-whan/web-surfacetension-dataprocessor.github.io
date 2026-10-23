@@ -52,6 +52,7 @@ def decompose_fit(row, seconds_per_unit, double):
         "asymptoticPercent": 100 * amplitudes / amplitude_sum,
         "observedTime": (np.array(observed["x"], dtype=float) - t0) * seconds_per_unit,
         "observedY": np.array(observed["y"], dtype=float),
+        "endpointGap": float(observed["y"][-1]) - float(row["gammaInf"]),
         "residualTime": (np.array(residuals["x"], dtype=float) - t0) * seconds_per_unit,
         "residualY": np.array(residuals["y"], dtype=float),
         "fittedY": float(row["gammaStart"]) - decreases.sum(axis=0),
@@ -130,8 +131,8 @@ def create_langmuir_pdf(payload):
                         if double else r"$\gamma(t)=\gamma_\infty+A e^{-(t-t_0)/\tau}$")
             fig.text(0.065, 0.865, equation, fontsize=14)
             _table(fig, [0.065, 0.775, 0.90, 0.065],
-                   [r"$\gamma(t_0)$ (mN/m)", r"$\gamma_\infty$ (mN/m)", "N", r"$R^2$", "RMSE (mN/m)", "T (s)"],
-                   [[_number(row["gammaStart"]), _number(row["gammaInf"]), str(row["n"]),
+                   [r"$\gamma(t_0)$ (mN/m)", r"$\gamma_\infty$ (mN/m)", r"$\gamma_{\mathrm{end}}-\gamma_\infty$ (mN/m)", "N", r"$R^2$", "RMSE (mN/m)", "T (s)"],
+                   [[_number(row["gammaStart"]), _number(row["gammaInf"]), _number(data["endpointGap"]), str(row["n"]),
                      _number(row["rSquared"]), _number(row["rmse"]), _number(data["durationSeconds"])]])
             component_rows = []
             labels = ["Fast", "Slow"] if double else ["Single"]

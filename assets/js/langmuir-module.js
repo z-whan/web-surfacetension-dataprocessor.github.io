@@ -14,7 +14,7 @@
         card: "[data-langmuir-card]", summary: "[data-langmuir-summary]", table: "[data-langmuir-table]",
         warnings: "[data-langmuir-warnings]", canvas: "#plot-langmuir-canvas",
         residualCanvas: "#plot-langmuir-residual-canvas", residualSection: "[data-langmuir-residual-section]",
-        png: "#plot-langmuir-export", svg: "#plot-langmuir-export-svg", json: "#plot-langmuir-export-json",
+        png: "#plot-langmuir-export", svg: "#plot-langmuir-export-svg", json: "#plot-langmuir-export-json", pdf: "#plot-langmuir-export-pdf",
         publication: "#plot-langmuir-send-publication",
       };
       this.dom = Object.fromEntries(Object.entries(selectors).map(([key, selector]) => [key, document.querySelector(selector)]));
@@ -44,6 +44,7 @@
       this.dom.json.addEventListener("click", () => {
         if (this.payload) window.SurfaceLabDownloads.downloadText(`${this.filenameBase()}.json`, JSON.stringify(this.payload, null, 2), "application/json");
       });
+      this.dom.pdf.addEventListener("click", this.parent.withRuntime(() => this.exportPdf()));
       this.dom.publication.addEventListener("click", () => {
         if (this.payload && this.payload.summary.fitted) this.parent.sendToPublication(this.dom.canvas, {
           sourceType: "langmuir", sourceTitle: this.payload.modelLabel || "Langmuir kinetic fit", filenameBase: `${this.filenameBase()}-publication`,
@@ -62,6 +63,29 @@
 
     filenameBase() {
       return this.payload && this.payload.modelKey === "double" ? "langmuir-double-fit" : "langmuir-fit";
+    }
+
+    async exportPdf() {
+      const payload = this.payload;
+      if (!payload || !payload.summary.fitted) return;
+      this.dom.pdf.disabled = true;
+      this.parent.setStatus("Preparing PDF export…");
+      try {
+        await this.parent.pyodideClient.ensureBuiltinPackages(["matplotlib"]);
+        if (this.payload !== payload) return;
+        const result = await this.parent.pyodideClient.callBridge("export_langmuir_pdf", JSON.stringify(payload));
+        if (this.payload !== payload) return;
+        const bytes = Uint8Array.from(atob(result.dataBase64), (character) => character.charCodeAt(0));
+        window.SurfaceLabDownloads.downloadBytes(`${this.filenameBase()}-report.pdf`, bytes, result.mimeType);
+        this.parent.setStatus("PDF export ready.");
+      } catch (error) {
+        if (this.payload === payload) {
+          this.parent.setStatus("PDF export failed.");
+          throw error;
+        }
+      } finally {
+        if (this.payload === payload) this.dom.pdf.disabled = false;
+      }
     }
 
     updateModelDescription() {
@@ -90,7 +114,7 @@
       this.dom.run.disabled = false;
       this.dom.card.hidden = true;
       this.dom.status.textContent = "No Langmuir fit for the current selection. Click Fit Langmuir to calculate.";
-      ["png", "svg", "json", "publication"].forEach((key) => { this.dom[key].disabled = true; });
+      ["png", "svg", "json", "pdf", "publication"].forEach((key) => { this.dom[key].disabled = true; });
     }
 
     async fit() {
@@ -168,7 +192,7 @@
       ui.replaceChildren(this.dom.warnings, [ui.el("p", { className: "field-hint", text: payload.assumptions }),
         ...(warnings.length ? [ui.el("ul", { className: "field-hint" }, warnings)] : [])]);
       this.dom.json.disabled = false;
-      ["png", "svg", "publication"].forEach((key) => { this.dom[key].disabled = !fitted; });
+      ["png", "svg", "pdf", "publication"].forEach((key) => { this.dom[key].disabled = !fitted; });
       if (fitted) {
         await this.parent.charts.renderLangmuirPlot(this.dom.canvas, payload);
         if (this.dom.residualSection.open) await this.parent.charts.renderLangmuirPlot(this.dom.residualCanvas, payload, true);

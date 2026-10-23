@@ -100,6 +100,14 @@ the amplitudes and baseline, using the existing numpy runtime.
 Expand Residuals to inspect observed minus
 fitted values. PNG/SVG and Publication Plot use the observation/fit overlay;
 Fit JSON also contains the model, options, source selection and residuals.
+`Export PDF Report` creates one landscape A4 page per successfully fitted curve:
+equation, identifiers, parameters, observed scatter with the fitted curve,
+stacked cumulative surface-tension decrease, component percentages and residuals.
+The report contains data labels only. Cumulative decreases are
+`Δγ_i(t) = A_i [1 - exp(-(t - t0)/τ_i)]`; percentages are shown both at the
+actual window endpoint and for the asymptotic amplitudes. A single-exponential
+report has one component. Matplotlib loads only on the first PDF export;
+source data remain in the browser.
 Session JSON preserves the model and fit controls; old sessions default to the
 single exponential. Refit after selecting the source file. File, model or
 selection changes clear the previous fit.

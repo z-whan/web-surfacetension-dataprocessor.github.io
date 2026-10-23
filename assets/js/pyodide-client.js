@@ -218,6 +218,11 @@
     }
   }
 
+  async function ensureBuiltinPackages(packages) {
+    if (!pyodideInstance) throw new Error("Python runtime is not ready yet.");
+    await pyodideInstance.loadPackage(packages);
+  }
+
   function loadPyodideScript() {
     if (window.loadPyodide) {
       return Promise.resolve();
@@ -356,6 +361,7 @@
   window.SurfaceLabPyodide = {
     initRuntime,
     ensureOptionalPackages,
+    ensureBuiltinPackages,
     normalizeError,
     stageBrowserFile,
     callBridge,

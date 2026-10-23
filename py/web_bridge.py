@@ -344,6 +344,20 @@ def fit_plot_langmuir(
     })
 
 
+def export_langmuir_pdf(payload_json: str) -> dict[str, Any]:
+    import base64
+    from DataProcessor.services.langmuir_report import create_langmuir_pdf
+
+    try:
+        payload = json.loads(payload_json)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise DataProcessingError("Invalid PDF export input.") from exc
+    if not isinstance(payload, dict):
+        raise DataProcessingError("Invalid PDF export input.")
+    result = create_langmuir_pdf(payload)
+    return {"dataBase64": base64.b64encode(result).decode("ascii"), "mimeType": "application/pdf"}
+
+
 def suggest_plot_experiments(source_path: str, options: dict[str, Any] | None = None) -> dict[str, Any]:
     # Keep invalid/unused slots for the per-experiment explanation. Preserve the
     # same numbered slots in plotting so a copied range selects the same curves.

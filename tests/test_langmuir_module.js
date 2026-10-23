@@ -14,7 +14,8 @@ global.SurfaceLabDomUtils = {
   replaceChildren: (parent, children) => { parent.children = children; },
 };
 require("../assets/js/langmuir-module.js");
-const jobs = [], cleaned = [], rendered = [], errors = [];
+const jobs = [], cleaned = [], rendered = [], errors = [], downloads = [], packages = [];
+global.SurfaceLabDownloads = { downloadBytes: (...args) => downloads.push(args) };
 const parent = {
   state: { file: { name: "first.csv" } },
   dom: Object.fromEntries(["plotStart", "plotEnd", "plotExpRange", "plotAvgOnly", "plotAvgShowOriginal", "showRawToggle"].map(key => [key, node()])),
@@ -23,6 +24,7 @@ const parent = {
   ensureFileSelected() { if (!this.state.file) throw Error("Choose a file"); },
   ensureFileDependencies: async () => {},
   pyodideClient: {
+    ensureBuiltinPackages: async requested => packages.push(requested),
     stageBrowserFile: async file => ({ fsPath: file.name }),
     callBridge: (...args) => new Promise((resolve, reject) => jobs.push({ args, resolve, reject })),
     removeFsFile: filename => cleaned.push(filename),
@@ -57,6 +59,17 @@ const payload = {
   assert.strictEqual(fit.dom.card.hidden, false);
   assert.strictEqual(fit.dom.png.disabled, false);
   assert.strictEqual(fit.dom.json.disabled, false);
+  assert.strictEqual(fit.dom.pdf.disabled, false);
+  const pdf = fit.exportPdf();
+  await tick();
+  const pdfJob = jobs.pop();
+  assert.strictEqual(pdfJob.args[0], "export_langmuir_pdf");
+  assert.strictEqual(JSON.parse(pdfJob.args[1]).sourceName, "second.csv");
+  pdfJob.resolve({ dataBase64: Buffer.from("%PDF-test").toString("base64"), mimeType: "application/pdf" });
+  await pdf;
+  assert.deepStrictEqual(packages, [["matplotlib"]]);
+  assert.strictEqual(downloads[0][0], "langmuir-fit-report.pdf");
+  assert.strictEqual(Buffer.from(downloads[0][1]).toString(), "%PDF-test");
   fit.dom.model.value = "double";
   fit.dom.model.listeners.change();
   assert.strictEqual(fit.payload, null, "changing fit models must clear stale results");
@@ -78,6 +91,7 @@ const payload = {
   assert.strictEqual(fit.payload, null);
   assert.strictEqual(fit.dom.card.hidden, true);
   assert.strictEqual(fit.dom.png.disabled, true);
+  assert.strictEqual(fit.dom.pdf.disabled, true);
   const failed = fit.fit();
   await tick();
   jobs[3].resolve({ ...payload, modelKey: "double", summary: { fitted: 0, total: 1 }, results: [{ name: "constant", status: "error", message: "Not identifiable", warnings: [] }] });

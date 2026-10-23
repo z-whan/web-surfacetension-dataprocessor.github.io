@@ -43,7 +43,7 @@ const payload = {
   await tick();
   assert.strictEqual(fit.dom.run.disabled, true);
   assert.strictEqual(jobs[0].args[0], "fit_plot_langmuir");
-  assert.deepStrictEqual(jobs[0].args.slice(2), ["3", "50", "1-2", true, { timeMin: "1000", timeMax: "50000", timeUnit: "ms" }, false]);
+  assert.deepStrictEqual(jobs[0].args.slice(2), ["3", "50", "1-2", true, { timeMin: "1000", timeMax: "50000", timeUnit: "ms", model: "single" }, false]);
   parent.state.file = { name: "second.csv" };
   fit.invalidate();
   const current = fit.fit();
@@ -57,14 +57,29 @@ const payload = {
   assert.strictEqual(fit.dom.card.hidden, false);
   assert.strictEqual(fit.dom.png.disabled, false);
   assert.strictEqual(fit.dom.json.disabled, false);
-  assert.deepStrictEqual(cleaned.sort(), ["first.csv", "second.csv"]);
+  fit.dom.model.value = "double";
+  fit.dom.model.listeners.change();
+  assert.strictEqual(fit.payload, null, "changing fit models must clear stale results");
+  assert(fit.dom.formula.textContent.includes("τ_fast"));
+  assert(fit.dom.modelHint.textContent.includes("10 distinct"));
+  const doubleFit = fit.fit();
+  await tick();
+  assert.strictEqual(jobs[2].args[6].model, "double");
+  jobs[2].resolve({ ...payload, modelKey: "double", modelLabel: "Double exponential", results: [{ ...payload.results[0],
+    components: [{ amplitude: 12, tauSeconds: 20, kObsPerSecond: 0.05 }, { amplitude: 20, tauSeconds: 160, kObsPerSecond: 0.00625 }],
+  }] });
+  await doubleFit;
+  assert.strictEqual(fit.filenameBase(), "langmuir-double-fit");
+  assert(JSON.stringify(fit.dom.table.children).includes("τ_slow (s)"));
+  assert.strictEqual(fit.dom.table.children[0].children[0].children[1].children[0].children.length, 13);
+  assert.deepStrictEqual(cleaned.sort(), ["first.csv", "second.csv", "second.csv"]);
   parent.dom.plotExpRange.listeners.input();
   assert.strictEqual(fit.payload, null);
   assert.strictEqual(fit.dom.card.hidden, true);
   assert.strictEqual(fit.dom.png.disabled, true);
   const failed = fit.fit();
   await tick();
-  jobs[2].resolve({ ...payload, summary: { fitted: 0, total: 1 }, results: [{ name: "constant", status: "error", message: "Not identifiable", warnings: [] }] });
+  jobs[3].resolve({ ...payload, modelKey: "double", summary: { fitted: 0, total: 1 }, results: [{ name: "constant", status: "error", message: "Not identifiable", warnings: [] }] });
   await failed;
   assert.strictEqual(fit.dom.canvas.hidden, true);
   assert.strictEqual(fit.dom.png.disabled, true);
@@ -72,12 +87,14 @@ const payload = {
   assert(JSON.stringify(fit.dom.warnings.children).includes("Not identifiable"));
   const invalid = fit.fit();
   await tick();
-  jobs[3].reject(Error("Unknown time unit"));
+  jobs[4].reject(Error("Unknown time unit"));
   await invalid;
   assert.strictEqual(fit.payload, null);
   assert.strictEqual(fit.dom.run.disabled, false);
   assert.deepStrictEqual(errors, ["Unknown time unit"]);
   fit.restoreSettings({ timeUnit: "bad", timeMin: 1 });
-  assert.deepStrictEqual(fit.getSettings(), { timeMin: "", timeMax: "", timeUnit: "auto" });
+  assert.deepStrictEqual(fit.getSettings(), { timeMin: "", timeMax: "", timeUnit: "auto", model: "single" });
+  fit.restoreSettings({ model: "double", timeUnit: "s" });
+  assert.strictEqual(fit.getSettings().model, "double");
   console.log("Langmuir module lifecycle tests passed");
 })().catch(error => { console.error(error); process.exit(1); });

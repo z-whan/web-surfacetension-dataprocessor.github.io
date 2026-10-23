@@ -1,6 +1,6 @@
 (function () {
   const ui = window.SurfaceLabDomUtils;
-  const settingsKeys = ["timeMin", "timeMax", "timeUnit"];
+  const settingsKeys = ["timeMin", "timeMax", "timeUnit", "model"];
 
   class LangmuirController {
     constructor(parent) {
@@ -8,6 +8,7 @@
       this.payload = null;
       this.request = 0;
       const selectors = {
+        model: "#plot-langmuir-model", formula: "[data-langmuir-formula]", modelHint: "[data-langmuir-model-hint]",
         timeMin: "#plot-langmuir-min", timeMax: "#plot-langmuir-max", timeUnit: "#plot-langmuir-unit",
         run: "#plot-langmuir-run", clear: "#plot-langmuir-clear", status: "[data-langmuir-status]",
         card: "[data-langmuir-card]", summary: "[data-langmuir-summary]", table: "[data-langmuir-table]",
@@ -22,7 +23,11 @@
     bind() {
       this.dom.run.addEventListener("click", this.parent.withRuntime(() => this.fit()));
       this.dom.clear.addEventListener("click", () => this.invalidate());
-      settingsKeys.forEach((key) => this.dom[key].addEventListener(key === "timeUnit" ? "change" : "input", () => this.invalidate()));
+      this.updateModelDescription();
+      settingsKeys.forEach((key) => this.dom[key].addEventListener(["timeUnit", "model"].includes(key) ? "change" : "input", () => {
+        this.invalidate();
+        if (key === "model") this.updateModelDescription();
+      }));
       ["plotStart", "plotEnd", "plotExpRange", "plotAvgOnly", "plotAvgShowOriginal", "showRawToggle"].forEach((key) => {
         this.parent.dom[key].addEventListener("change", () => this.invalidate());
         if (["plotStart", "plotEnd", "plotExpRange"].includes(key)) {
@@ -32,16 +37,16 @@
       for (const [key, format] of [["png", "png"], ["svg", "svg"]]) {
         this.dom[key].addEventListener("click", this.parent.withRuntime(async () => {
           if (this.payload && this.payload.summary.fitted) {
-            await this.parent.charts.exportPlotImage(this.dom.canvas, "langmuir-fit", { format });
+            await this.parent.charts.exportPlotImage(this.dom.canvas, this.filenameBase(), { format });
           }
         }));
       }
       this.dom.json.addEventListener("click", () => {
-        if (this.payload) window.SurfaceLabDownloads.downloadText("langmuir-fit.json", JSON.stringify(this.payload, null, 2), "application/json");
+        if (this.payload) window.SurfaceLabDownloads.downloadText(`${this.filenameBase()}.json`, JSON.stringify(this.payload, null, 2), "application/json");
       });
       this.dom.publication.addEventListener("click", () => {
         if (this.payload && this.payload.summary.fitted) this.parent.sendToPublication(this.dom.canvas, {
-          sourceType: "langmuir", sourceTitle: "Langmuir kinetic fit", filenameBase: "langmuir-fit-publication",
+          sourceType: "langmuir", sourceTitle: this.payload.modelLabel || "Langmuir kinetic fit", filenameBase: `${this.filenameBase()}-publication`,
         });
       });
       this.dom.residualSection.addEventListener("toggle", () => {
@@ -55,12 +60,28 @@
       return Object.fromEntries(settingsKeys.map((key) => [key, this.dom[key].value]));
     }
 
+    filenameBase() {
+      return this.payload && this.payload.modelKey === "double" ? "langmuir-double-fit" : "langmuir-fit";
+    }
+
+    updateModelDescription() {
+      const double = this.dom.model.value === "double";
+      this.dom.formula.textContent = double
+        ? "γ(t) = γ∞ + A_fast exp[−(t − t₀) / τ_fast] + A_slow exp[−(t − t₀) / τ_slow]"
+        : "γ(t) = γ∞ + A exp[−(t − t₀) / τ]";
+      this.dom.modelHint.textContent = double
+        ? "Empirical two-time-scale extension; τ_fast ≤ τ_slow and A_fast, A_slow ≥ 0. Requires at least 10 distinct finite times. Similar time scales or near-zero components may be poorly identifiable; two components do not establish two adsorption mechanisms."
+        : "Apparent single-exponential relaxation. Requires at least 6 distinct finite times.";
+    }
+
     restoreSettings(settings) {
       this.invalidate();
       const values = settings || {};
       this.dom.timeMin.value = typeof values.timeMin === "string" ? values.timeMin : "";
       this.dom.timeMax.value = typeof values.timeMax === "string" ? values.timeMax : "";
       this.dom.timeUnit.value = ["auto", "ms", "s", "min"].includes(values.timeUnit) ? values.timeUnit : "auto";
+      this.dom.model.value = values.model === "double" ? "double" : "single";
+      this.updateModelDescription();
     }
 
     invalidate() {
@@ -93,7 +114,7 @@
         this.payload = { ...payload, sourceName: file.name, selection: args };
         await this.render();
         if (request !== this.request) return;
-        this.parent.setStatus(`Langmuir fit: ${payload.summary.fitted}/${payload.summary.total} curves fitted from ${file.name}.`);
+        this.parent.setStatus(`${payload.modelLabel || "Langmuir"} fit: ${payload.summary.fitted}/${payload.summary.total} curves fitted from ${file.name}.`);
       } catch (error) {
         if (request === this.request) {
           this.invalidate();
@@ -109,16 +130,23 @@
     async render() {
       const payload = this.payload;
       const fitted = payload.summary.fitted > 0;
+      const double = payload.modelKey === "double";
       this.dom.card.hidden = false;
       this.dom.canvas.hidden = !fitted;
       this.dom.residualSection.hidden = !fitted;
-      this.dom.summary.textContent = `${payload.sourceName} · ${payload.summary.fitted}/${payload.summary.total} curves fitted. Markers: observations; dashed lines: fits.`;
+      this.dom.summary.textContent = `${payload.sourceName} · ${payload.modelLabel || "Single exponential"} · ${payload.summary.fitted}/${payload.summary.total} curves fitted. Markers: observations; dashed lines: fits.`;
       this.dom.status.textContent = fitted ? "Fit complete. Parameters, warnings and residuals are in Langmuir Fit Results." : "No curves could be fitted. Review the per-curve messages in the results.";
-      const columns = ["Curve", "N", "γ(t₀) (mN/m)", "γ∞ (mN/m)", "A (mN/m)", "τ (s)", "k_obs (s⁻¹)", "t½ (s)", "R²", "RMSE (mN/m)", "Fit window"];
+      const parameterColumns = double
+        ? ["A_fast (mN/m)", "τ_fast (s)", "k_fast (s⁻¹)", "A_slow (mN/m)", "τ_slow (s)", "k_slow (s⁻¹)"]
+        : ["A (mN/m)", "τ (s)", "k_obs (s⁻¹)", "t½ (s)"];
+      const columns = ["Curve", "N", "γ(t₀) (mN/m)", "γ∞ (mN/m)", ...parameterColumns, "R²", "RMSE (mN/m)", `Fit window (${payload.xLabel || "source time"})`];
       const number = (value) => Number.isFinite(value) ? Number(value).toPrecision(5) : "—";
       const rows = payload.results.map((row) => {
-        const values = row.status === "ok" ? [row.name, row.n, ...[row.gammaStart, row.gammaInf, row.amplitude,
-          row.tauSeconds, row.kObsPerSecond, row.halfTimeSeconds, row.rSquared, row.rmse].map(number), `${number(row.t0)} – ${number(row.timeEnd)}`] : [row.name, "Fit unavailable", ...Array(9).fill("—")];
+        const parameters = double
+          ? (row.components || []).flatMap((component) => [component.amplitude, component.tauSeconds, component.kObsPerSecond])
+          : [row.amplitude, row.tauSeconds, row.kObsPerSecond, row.halfTimeSeconds];
+        const values = row.status === "ok" ? [row.name, row.n, ...[row.gammaStart, row.gammaInf, ...parameters,
+          row.rSquared, row.rmse].map(number), `${number(row.t0)} – ${number(row.timeEnd)}`] : [row.name, "Fit unavailable", ...Array(columns.length - 2).fill("—")];
         return ui.el("tr", {}, values.map((value, index) => ui.el(index ? "td" : "th", { text: String(value), attrs: index ? {} : { scope: "row" } })));
       });
       ui.replaceChildren(this.dom.table, [ui.el("div", { className: "table-scroll" }, [ui.el("table", { attrs: { "aria-label": "Langmuir fit parameters" } }, [

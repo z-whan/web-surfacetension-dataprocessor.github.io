@@ -27,7 +27,7 @@ const session = manager.createSession({
       methodKey: "rolling_std",
       parameters: { windowSize: "5" },
     },
-    langmuir: { timeMin: "1000", timeMax: "600000", timeUnit: "ms" },
+    langmuir: { timeMin: "1000", timeMax: "600000", timeUnit: "ms", model: "double" },
     yAxis: {
       spanPercent: 120,
       manualRange: [10, 20],
@@ -71,7 +71,8 @@ assert.strictEqual(session.schemaVersion, 1);
 assert.strictEqual(session.cmc, undefined);
 assert.strictEqual(session.timeSeries.selection.expRangeText, "1-2");
 assert.strictEqual(session.timeSeries.plotStyle.mode, "band");
-assert.deepStrictEqual(session.timeSeries.langmuir, { timeMin: "1000", timeMax: "600000", timeUnit: "ms" });
+assert.deepStrictEqual(session.timeSeries.langmuir, { timeMin: "1000", timeMax: "600000", timeUnit: "ms", model: "double" });
+assert.strictEqual(manager.createSession({ timeSeries: { langmuir: {} } }).timeSeries.langmuir.model, "single", "old sessions default to a single exponential");
 assert.strictEqual(session.compare.plotStyle.mode, "error-bars", "old scientific sessions stay compatible");
 assert.strictEqual(session.compare.curves.length, 1);
 assert.strictEqual(session.publication.layout.title.text, "Figure");

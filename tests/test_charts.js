@@ -367,6 +367,18 @@ assert.strictEqual(replicateUncertainty.errorKind, "replicate-sd");
   assert.strictEqual(single.meta.surfaceLab.errorKind, "local-residual-sd");
   assert.strictEqual(charts.expandBandTraces([single])[0].y[0], null, "no fabricated endpoint uncertainty");
 
+  const doubleFit = { modelKey: "double", modelLabel: "Double exponential", xLabel: "Time (s)", results: [{
+    name: "Exp 1", status: "ok", observed: { x: [0, 1, 2], y: [70, 65.1, 60] },
+    curve: { x: [0, 1, 2], y: [70, 65, 60] }, residuals: { x: [0, 1, 2], y: [0, 0.1, 0] },
+  }] };
+  await charts.renderLangmuirPlot({}, doubleFit);
+  assert.strictEqual(captured.layout.title.text, "Double exponential fit");
+  assert.deepStrictEqual(captured.data[0].y, [70, 65.1, 60], "fit plots must retain unsmoothed observations");
+  assert.deepStrictEqual(captured.data[1].y, [70, 65, 60]);
+  assert.strictEqual(captured.data[0].marker.color, captured.data[1].line.color);
+  await charts.renderLangmuirPlot({}, doubleFit, true);
+  assert.deepStrictEqual(captured.data[0].y, [0, 0.1, 0], "residual plots must use observed minus fitted");
+  assert.strictEqual(captured.layout.shapes[0].y0, 0);
   console.log("charts tests passed");
 })().catch((error) => {
   console.error(error);

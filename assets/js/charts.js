@@ -621,7 +621,7 @@
     });
     const layout = baseLayout({
       xLabel: payload.xLabel, yLabel: residuals ? "Observed − fitted (mN/m)" : "Surface tension γ (mN/m)",
-      title: residuals ? "Langmuir fit residuals" : "Apparent Langmuir kinetic fit", xScale: "linear", yScale: "linear",
+      title: residuals ? `${payload.modelLabel || "Langmuir fit"} residuals` : `${payload.modelLabel || "Apparent Langmuir kinetic"} fit`, xScale: "linear", yScale: "linear",
     });
     layout.legend = { ...layout.legend, yanchor: "top", y: -0.25 };
     layout.margin.b = 140;

@@ -80,22 +80,41 @@ unsmoothed observations with equal weights. The main plot need not be run first.
 Optional Fit Time Min/Max are in source-axis units. Auto detects labelled ms,
 s or min; choose a source unit explicitly for an unlabelled time column.
 
-The model is `γ(t) = γ∞ + A exp[−(t − t₀)/τ]`, constrained to positive γ∞, A
+Choose a Fit Model. `Single exponential` (default) uses
+`γ(t) = γ∞ + A exp[−(t − t₀)/τ]`, constrained to positive γ∞, A
 and τ. t₀ is the first finite observation in each fit window. Results include
 γ(t₀), γ∞, A, τ (s), k_obs = 1/τ (s⁻¹), t½ = τ ln(2) (s), R², RMSE, point
-count and the actual fit window. Expand Residuals to inspect observed minus
+count and the actual fit window.
+
+`Double exponential (fast + slow)` uses
+`γ(t) = γ∞ + A_fast exp[−(t − t₀)/τ_fast] + A_slow exp[−(t − t₀)/τ_slow]`.
+It keeps γ∞ and both time constants positive, constrains amplitudes to be
+non-negative, and orders τ_fast ≤ τ_slow. The table reports both amplitudes,
+time constants and observed rates (1/τ), plus the common baseline, R² and RMSE.
+JSON also includes each component's half-time. Fits use a multi-start search
+over the two log time constants and non-negative linear least squares for
+the amplitudes and baseline, using the existing numpy runtime.
+
+Expand Residuals to inspect observed minus
 fitted values. PNG/SVG and Publication Plot use the observation/fit overlay;
 Fit JSON also contains the model, options, source selection and residuals.
-Session JSON preserves fit controls; refit after selecting the source file.
-File or selection changes clear the previous fit.
+Session JSON preserves the model and fit controls; old sessions default to the
+single exponential. Refit after selecting the source file. File, model or
+selection changes clear the previous fit.
 
-This is a single-exponential approximation to Langmuir kinetics at constant
+The single exponential approximates Langmuir kinetics at constant
 bulk concentration with an approximately linear tension/coverage relation;
 see [Surfactant adsorption kinetics in microfluidics](https://pmc.ncbi.nlm.nih.gov/articles/PMC5068272/).
-It does not fit a concentration isotherm. γ∞ is an extrapolated asymptote rather
+The double exponential is an empirical extension; two fitted time scales do not
+demonstrate two adsorption mechanisms. Neither model fits a concentration isotherm.
+γ∞ is an extrapolated asymptote rather
 than measured equilibrium, and k_obs cannot separate adsorption/desorption
 constants. The UI flags short windows, sampling limits, search boundaries and
-low R². At least six distinct finite times are required per curve; failed curves
+low R². Double fits also warn about similar time scales, a component below 2%
+of total amplitude, and an ill-conditioned parameter Jacobian. These are
+diagnostic heuristics, not formal confidence intervals or model selection tests.
+At least six distinct finite times are required for a single exponential and ten
+for a double exponential; failed curves
 are reported individually while valid curves remain available.
 
 ### CMC Analysis

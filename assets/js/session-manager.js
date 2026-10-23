@@ -96,6 +96,7 @@
       },
       plotStyle: sanitizePlotStyle(value.plotStyle),
       langmuir: {
+        model: langmuir.model === "double" ? "double" : "single",
         timeMin: safeString(langmuir.timeMin, ""),
         timeMax: safeString(langmuir.timeMax, ""),
         timeUnit: ["auto", "ms", "s", "min"].includes(langmuir.timeUnit) ? langmuir.timeUnit : "auto",

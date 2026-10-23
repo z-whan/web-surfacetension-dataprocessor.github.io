@@ -136,24 +136,35 @@
       this.dom.residualSection.hidden = !fitted;
       this.dom.summary.textContent = `${payload.sourceName} · ${payload.modelLabel || "Single exponential"} · ${payload.summary.fitted}/${payload.summary.total} curves fitted. Markers: observations; dashed lines: fits.`;
       this.dom.status.textContent = fitted ? "Fit complete. Parameters, warnings and residuals are in Langmuir Fit Results." : "No curves could be fitted. Review the per-curve messages in the results.";
-      const parameterColumns = double
-        ? ["A_fast (mN/m)", "τ_fast (s)", "k_fast (s⁻¹)", "A_slow (mN/m)", "τ_slow (s)", "k_slow (s⁻¹)"]
-        : ["A (mN/m)", "τ (s)", "k_obs (s⁻¹)", "t½ (s)"];
-      const columns = ["Curve", "N", "γ(t₀) (mN/m)", "γ∞ (mN/m)", ...parameterColumns, "R²", "RMSE (mN/m)", `Fit window (${payload.xLabel || "source time"})`];
       const number = (value) => Number.isFinite(value) ? Number(value).toPrecision(5) : "—";
+      const metrics = (entries) => ui.el("dl", { className: "langmuir-metrics" }, entries.map(([label, value]) =>
+        ui.el("div", {}, [ui.el("dt", { text: label }), ui.el("dd", { text: String(value) })])));
       const rows = payload.results.map((row) => {
-        const parameters = double
-          ? (row.components || []).flatMap((component) => [component.amplitude, component.tauSeconds, component.kObsPerSecond])
-          : [row.amplitude, row.tauSeconds, row.kObsPerSecond, row.halfTimeSeconds];
-        const values = row.status === "ok" ? [row.name, row.n, ...[row.gammaStart, row.gammaInf, ...parameters,
-          row.rSquared, row.rmse].map(number), `${number(row.t0)} – ${number(row.timeEnd)}`] : [row.name, "Fit unavailable", ...Array(columns.length - 2).fill("—")];
-        return ui.el("tr", {}, values.map((value, index) => ui.el(index ? "td" : "th", { text: String(value), attrs: index ? {} : { scope: "row" } })));
+        const children = [ui.el("h4", { text: `Curve: ${row.name}` })];
+        if (row.status !== "ok") {
+          children.push(ui.el("p", { className: "field-hint", text: `Fit unavailable: ${row.message}` }));
+        } else {
+          children.push(metrics([
+            ["N", row.n], ["γ(t₀) (mN/m)", number(row.gammaStart)], ["γ∞ (mN/m)", number(row.gammaInf)],
+            ["R²", number(row.rSquared)], ["RMSE (mN/m)", number(row.rmse)],
+          ]));
+          const components = double
+            ? (row.components || []).map((component, index) => ({
+              title: index === 0 ? "Fast component" : "Slow component",
+              entries: [["A (mN/m)", number(component.amplitude)], ["τ (s)", number(component.tauSeconds)], ["k (s⁻¹)", number(component.kObsPerSecond)]],
+            }))
+            : [{ title: "Relaxation", entries: [
+              ["A (mN/m)", number(row.amplitude)], ["τ (s)", number(row.tauSeconds)],
+              ["k_obs (s⁻¹)", number(row.kObsPerSecond)], ["t½ (s)", number(row.halfTimeSeconds)],
+            ] }];
+          children.push(ui.el("div", { className: "langmuir-components" }, components.map((component) =>
+            ui.el("section", { className: "langmuir-component" }, [ui.el("h5", { text: component.title }), metrics(component.entries)]))));
+          children.push(ui.el("p", { className: "langmuir-fit-window", text: `Fit window (${payload.xLabel || "source time"}): ${number(row.t0)} – ${number(row.timeEnd)}` }));
+        }
+        return ui.el("section", { className: "langmuir-curve-result", attrs: { "aria-label": `${row.name} fit parameters` } }, children);
       });
-      ui.replaceChildren(this.dom.table, [ui.el("div", { className: "table-scroll" }, [ui.el("table", { attrs: { "aria-label": "Langmuir fit parameters" } }, [
-        ui.el("thead", {}, [ui.el("tr", {}, columns.map((text) => ui.el("th", { text, attrs: { scope: "col" } })))]),
-        ui.el("tbody", {}, rows),
-      ])])]);
-      const warnings = payload.results.flatMap((row) => (row.status === "error" ? [row.message] : row.warnings).map((message) => ui.el("li", { text: `${row.name}: ${message}` })));
+      ui.replaceChildren(this.dom.table, [ui.el("div", { className: "langmuir-results" }, rows)]);
+      const warnings = payload.results.flatMap((row) => (row.status === "ok" ? row.warnings : []).map((message) => ui.el("li", { text: `${row.name}: ${message}` })));
       ui.replaceChildren(this.dom.warnings, [ui.el("p", { className: "field-hint", text: payload.assumptions }),
         ...(warnings.length ? [ui.el("ul", { className: "field-hint" }, warnings)] : [])]);
       this.dom.json.disabled = false;

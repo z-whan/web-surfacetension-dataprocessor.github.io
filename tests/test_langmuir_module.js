@@ -70,8 +70,9 @@ const payload = {
   }] });
   await doubleFit;
   assert.strictEqual(fit.filenameBase(), "langmuir-double-fit");
-  assert(JSON.stringify(fit.dom.table.children).includes("τ_slow (s)"));
-  assert.strictEqual(fit.dom.table.children[0].children[0].children[1].children[0].children.length, 13);
+  const parameters = JSON.stringify(fit.dom.table.children);
+  assert(parameters.includes("Fast component") && parameters.includes("Slow component"));
+  assert(parameters.includes("160.00") && parameters.includes("0.0062500"), "slow-component parameters must remain visible");
   assert.deepStrictEqual(cleaned.sort(), ["first.csv", "second.csv", "second.csv"]);
   parent.dom.plotExpRange.listeners.input();
   assert.strictEqual(fit.payload, null);
@@ -84,7 +85,7 @@ const payload = {
   assert.strictEqual(fit.dom.canvas.hidden, true);
   assert.strictEqual(fit.dom.png.disabled, true);
   assert.strictEqual(fit.dom.json.disabled, false, "failed fits can still export diagnostics");
-  assert(JSON.stringify(fit.dom.warnings.children).includes("Not identifiable"));
+  assert(JSON.stringify(fit.dom.table.children).includes("Not identifiable"));
   const invalid = fit.fit();
   await tick();
   jobs[4].reject(Error("Unknown time unit"));

@@ -89,8 +89,10 @@ count and the actual fit window.
 `Double exponential (fast + slow)` uses
 `γ(t) = γ∞ + A_fast exp[−(t − t₀)/τ_fast] + A_slow exp[−(t − t₀)/τ_slow]`.
 It keeps γ∞ and both time constants positive, constrains amplitudes to be
-non-negative, and orders τ_fast ≤ τ_slow. The table reports both amplitudes,
-time constants and observed rates (1/τ), plus the common baseline, R² and RMSE.
+non-negative, and orders τ_fast ≤ τ_slow. Each curve has a wrapping parameter
+block with the common baseline, R² and RMSE, plus separate fast/slow component
+groups for both amplitudes, time constants and observed rates (1/τ). All
+parameters remain visible without horizontal scrolling, including on narrow screens.
 JSON also includes each component's half-time. Fits use a multi-start search
 over the two log time constants and non-negative linear least squares for
 the amplitudes and baseline, using the existing numpy runtime.
